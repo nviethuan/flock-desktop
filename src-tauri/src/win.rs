@@ -46,6 +46,17 @@ pub fn setup(app: &AppHandle, settings: &Settings) -> tauri::Result<()> {
     let _ = window.set_always_on_top(settings.always_on_top);
     let _ = window.set_ignore_cursor_events(settings.click_through);
 
+    // Sizing belongs to Settings, so macOS drops the resizable style mask: a borderless
+    // window that keeps it still grows an invisible edge-drag frame, and dragging an edge
+    // would change the size behind the panel's back. tao's macOS `set_resizable` only edits
+    // the mask (no min/max clamp), so the programmatic `set_size` used by restore, the analog
+    // Size slider and the digital hug keeps working. GTK is deliberately left alone: there
+    // `set_resizable(false)` pins the window to its natural size and the hug would die.
+    #[cfg(target_os = "macos")]
+    {
+        let _ = window.set_resizable(false);
+    }
+
     restore_bounds(&window, settings);
     install_handlers(&window);
 
@@ -181,6 +192,13 @@ fn record_bounds(window: &WebviewWindow) {
     if state.should_persist(BOUNDS_PERSIST_INTERVAL) {
         settings::persist(app, &state.snapshot());
     }
+}
+
+/// Command behind the clock's double click: the same panel the tray opens, so the two
+/// entry points can never drift apart.
+#[tauri::command]
+pub fn show_settings(app: AppHandle) -> Result<(), String> {
+    open_settings(&app)
 }
 
 /// Opens (or re-focuses) the settings window next to the clock.

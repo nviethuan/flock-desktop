@@ -121,7 +121,8 @@ npx tauri icon src-tauri/icons/app-icon.png
 ### macOS
 
 - [ ] Window is 220×220, frameless, transparent, always on top, absent from the Dock's app switcher list behaviour is unchanged (see limitations).
-- [ ] Drag the middle of the clock to move it and its edge to resize; in analog mode the window stays square (edge drag or the Size slider) and the face scales to fill it; position/size survive quit + relaunch.
+- [ ] Double click the clock: the Settings panel opens beside it, in both analog and digital mode.
+- [ ] Drag anywhere on the clock to move it; dragging an edge must not resize it. In analog mode the window stays square (Size slider) and the face scales to fill it; position/size survive quit + relaunch.
 - [ ] `Cmd+Shift+O` toggles click-through both ways; tray "Click-through" also restores input.
 - [ ] Tray: Show/Hide label flips, Always on top checkmark toggles, opacity 100/80/60/40 applies, both built-in skins load, custom SVG loads or is rejected with a notice, time zone changes the displayed time, Launch at login adds/removes the login item.
 - [ ] Tray → Settings… opens the panel beside the clock; switching to Digital shows `HH:mm`, typing `hh:mm:ss A` or `yyyy-MM-dd HH:mm` updates the clock live, each of the six fonts renders in its own face, the Size slider (10–100 px) resizes the readout and the window hugs it, and Style → colour swatch + "Neon glow" + "Dark backdrop" repaint it (off = transparent, floating time).
@@ -134,7 +135,7 @@ npx tauri icon src-tauri/icons/app-icon.png
 - [ ] No white flash on first paint; window is transparent with no border/shadow.
 - [ ] Tray icon appears in the notification area; menu items work; "Launch at login" writes `HKCU\...\Run`.
 - [ ] `Ctrl+Shift+O` toggles click-through; tray restores it.
-- [ ] Resize with the mouse keeps a square in analog mode, while the digital readout stays hugged; drag persists across restart.
+- [ ] Dragging the clock moves it but never resizes it; the Size slider keeps the window square in analog mode, the digital readout stays hugged, and drag persists across restart.
 - [ ] Taskbar shows no entry (`skipTaskbar`).
 
 ### Linux (X11)
@@ -184,18 +185,28 @@ npx tauri icon src-tauri/icons/app-icon.png
   means editing `scripts/fetch-fonts.mjs` and re-running it; nothing is fetched at runtime.
 - **The analog face scales with its window.** A skin fills the webview
   (`width: 100%; height: 100%` plus `preserveAspectRatio="xMidYMid meet"`), so the face is
-  always as big as the square window it lives in. The side is set either from the Size
-  slider in Settings (analog only, `MIN_SIDE`–`MAX_SIDE` = 120–1200 px, written as
-  `width`/`height`) or by dragging the clock's edge.
+  always as big as the square window it lives in. The side is set from the Size slider in
+  Settings (analog only, `MIN_SIDE`–`MAX_SIDE` = 120–1200 px, written as `width`/`height`);
+  the mouse only moves the window.
 - **The analog square is enforced in software.** Tauri v2.12 exposes no native
   aspect-ratio constraint (`WindowSizeConstraints` has only min/max), so `win.rs` snaps
   the window back to a square on `Resized` while `displayMode` is analog; the digital
-  clock is left free so it can hug its readout. It can feel slightly sticky while
-  dragging a corner in analog mode.
-- **Edges resize, the middle moves.** macOS gives a borderless window no resize border,
-  so `Clock.tsx` treats the outer `RESIZE_BAND` (8 px) as the frame and calls
-  `startResizeDragging` with the matching direction (needs
-  `core:window:allow-start-resize-dragging`); everything inside it starts a window move.
+  clock is left free so it can hug its readout.
+- **A mouse drag only ever moves the window.** Sizing is a settings concern: the Size
+  slider (and the hug path for digital) writes `width`/`height` through Rust, so a stray
+  edge drag cannot leave the clock at an odd size, and no resize affordance has to be
+  drawn on a borderless window. There is no JS resize handler and no
+  `core:window:allow-start-resize-dragging` permission any more, and `win::setup` drops
+  the macOS resizable style mask (`set_resizable(false)`), because a borderless window
+  that keeps that mask still gets an invisible native edge-drag frame. tao's macOS
+  `set_resizable` only edits the mask, so restore, the analog Size slider and the digital
+  hug keep setting the size programmatically; GTK is left resizable on purpose, since
+  `set_resizable(false)` there pins the window to its natural size and the hug would stop
+  working.
+  A double click anywhere on the clock calls `show_settings`, the same Rust path the tray
+  uses. Because the first press already starts the window move, the webview never reports
+  a dblclick for it, so the handler watches the second `mousedown` (click count ≥ 2) and
+  keeps `onDoubleClick` only for the case where no move was started.
 - **macOS above fullscreen is best-effort.** `set_visible_on_all_workspaces(true)` plus
   always-on-top joins all spaces, but Tauri does not expose
   `NSWindowCollectionBehaviorFullScreenAuxiliary`; floating over another app's fullscreen

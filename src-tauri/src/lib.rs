@@ -23,6 +23,7 @@ pub fn run() {
             settings::read_skin_file,
             win::resize_clock_box,
             win::close_settings,
+            win::show_settings,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

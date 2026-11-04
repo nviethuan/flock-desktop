@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
+import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react';
 import { digitalTextStyle } from '../lib/colors';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -10,43 +10,6 @@ import type { Skin } from '../lib/skins';
 
 /** Share of the type size kept free around the readout so the glow is not clipped. */
 const GLOW_PAD_RATIO = 0.3;
-
-/**
- * macOS gives a borderless window no resize border of its own, so the clock grows one here:
- * presses this close to the edge start a resize drag instead of moving the window.
- */
-const RESIZE_BAND = 8;
-
-/** The same values `startResizeDragging` takes; the package keeps its type private. */
-type ResizeDirection =
-  | 'East'
-  | 'North'
-  | 'NorthEast'
-  | 'NorthWest'
-  | 'South'
-  | 'SouthEast'
-  | 'SouthWest'
-  | 'West';
-
-/** Which edge or corner the press landed on, or null for a plain move. */
-function resizeDirection(event: ReactPointerEvent<HTMLDivElement>): ResizeDirection | null {
-  const { clientX, clientY } = event;
-  const { innerWidth, innerHeight } = window;
-  const west = clientX < RESIZE_BAND;
-  const east = clientX > innerWidth - RESIZE_BAND;
-  const north = clientY < RESIZE_BAND;
-  const south = clientY > innerHeight - RESIZE_BAND;
-
-  if (north && west) return 'NorthWest';
-  if (north && east) return 'NorthEast';
-  if (south && west) return 'SouthWest';
-  if (south && east) return 'SouthEast';
-  if (north) return 'North';
-  if (south) return 'South';
-  if (west) return 'West';
-  if (east) return 'East';
-  return null;
-}
 
 /** The clock window hugs the readout, so the side is never the whole story. */
 function requestBox(box: { width: number; height: number }): void {
@@ -106,19 +69,23 @@ export default function Clock({
     paused,
   });
 
-  const beginDrag = (event: ReactPointerEvent<HTMLDivElement>): void => {
-    if (event.button !== 0) return;
-    const clock = getCurrentWindow();
-    const direction = resizeDirection(event);
+  const openSettings = (): void => {
+    void invoke('show_settings').catch(() => {
+      /* the tray is still there if the panel cannot open */
+    });
+  };
 
-    if (direction) {
-      void clock.startResizeDragging(direction).catch(() => {
-        /* resizing is a nicety; a failure must not break the clock */
-      });
+  const beginPress = (event: ReactMouseEvent<HTMLDivElement>): void => {
+    if (event.button !== 0) return;
+    // The first press already hands the pointer to the window manager, so the webview never
+    // delivers a dblclick for a press that starts a move: the second press is the signal.
+    if (event.detail >= 2) {
+      openSettings();
       return;
     }
 
-    void clock.startDragging().catch(() => {
+    // The whole surface moves the window: sizing belongs to Settings, never to a mouse drag.
+    void getCurrentWindow().startDragging().catch(() => {
       /* dragging is a nicety; a failure must not break the clock */
     });
   };
@@ -133,7 +100,12 @@ export default function Clock({
     const pad = digitalNeon ? Math.round(digitalSize * GLOW_PAD_RATIO) : 0;
     const style = { opacity: opacity / 100, '--clock-pad': `${pad}px` } as CSSProperties;
     return (
-      <div className="clock clock--digital" style={style} onPointerDown={beginDrag}>
+      <div
+        className="clock clock--digital"
+        style={style}
+        onMouseDown={beginPress}
+        onDoubleClick={openSettings}
+      >
         {/* The loop owns this node's text; React only sets type, colour and glow. */}
         <span
           className={className}
@@ -145,7 +117,7 @@ export default function Clock({
   }
 
   return (
-    <div className="clock" style={{ opacity: opacity / 100 }} onPointerDown={beginDrag}>
+    <div className="clock" style={{ opacity: opacity / 100 }} onMouseDown={beginPress} onDoubleClick={openSettings}>
       {/* skin.markup has been parsed and sanitized by lib/sanitize-svg.ts */}
       <div className="clock__skin" ref={hostRef} dangerouslySetInnerHTML={{ __html: skin.markup }} />
     </div>
