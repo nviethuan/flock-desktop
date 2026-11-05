@@ -1,8 +1,8 @@
 import { useRef } from 'react';
-import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react';
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import { digitalTextStyle } from '../lib/colors';
 import { invoke } from '@tauri-apps/api/core';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { beginWindowDrag } from '../lib/drag';
 import { useClockLoop } from '../hooks/useClockLoop';
 import { fontStack } from '../lib/fonts';
 import type { DisplayMode } from '../lib/settings';
@@ -75,19 +75,17 @@ export default function Clock({
     });
   };
 
-  const beginPress = (event: ReactMouseEvent<HTMLDivElement>): void => {
+  // The whole surface moves the window: sizing belongs to Settings, never to a mouse drag.
+  const beginDrag = (event: ReactPointerEvent<HTMLDivElement>): void => {
     if (event.button !== 0) return;
-    // The first press already hands the pointer to the window manager, so the webview never
-    // delivers a dblclick for a press that starts a move: the second press is the signal.
+    // Where the OS runs the drag (Windows, Linux) it swallows the second click, so the click
+    // count is the only signal the webview gets; macOS moves itself and reports a real
+    // dblclick instead, and this early exit there just costs one extra focus call.
     if (event.detail >= 2) {
       openSettings();
       return;
     }
-
-    // The whole surface moves the window: sizing belongs to Settings, never to a mouse drag.
-    void getCurrentWindow().startDragging().catch(() => {
-      /* dragging is a nicety; a failure must not break the clock */
-    });
+    beginWindowDrag(event.nativeEvent);
   };
 
   if (displayMode === 'digital') {
@@ -103,7 +101,7 @@ export default function Clock({
       <div
         className="clock clock--digital"
         style={style}
-        onMouseDown={beginPress}
+        onPointerDown={beginDrag}
         onDoubleClick={openSettings}
       >
         {/* The loop owns this node's text; React only sets type, colour and glow. */}
@@ -117,7 +115,7 @@ export default function Clock({
   }
 
   return (
-    <div className="clock" style={{ opacity: opacity / 100 }} onMouseDown={beginPress} onDoubleClick={openSettings}>
+    <div className="clock" style={{ opacity: opacity / 100 }} onPointerDown={beginDrag} onDoubleClick={openSettings}>
       {/* skin.markup has been parsed and sanitized by lib/sanitize-svg.ts */}
       <div className="clock__skin" ref={hostRef} dangerouslySetInnerHTML={{ __html: skin.markup }} />
     </div>

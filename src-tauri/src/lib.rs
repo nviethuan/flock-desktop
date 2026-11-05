@@ -24,6 +24,7 @@ pub fn run() {
             win::resize_clock_box,
             win::close_settings,
             win::show_settings,
+            win::platform,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

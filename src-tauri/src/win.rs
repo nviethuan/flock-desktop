@@ -194,6 +194,13 @@ fn record_bounds(window: &WebviewWindow) {
     }
 }
 
+/// The webview needs exactly one OS fact: macOS is the only place where the native window
+/// drag is unusable, so the clock moves itself there (see `src/lib/drag.ts`).
+#[tauri::command]
+pub fn platform() -> &'static str {
+    std::env::consts::OS
+}
+
 /// Command behind the clock's double click: the same panel the tray opens, so the two
 /// entry points can never drift apart.
 #[tauri::command]

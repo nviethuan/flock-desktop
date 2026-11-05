@@ -229,9 +229,18 @@ npx tauri icon src-tauri/icons/app-icon.png
   `set_resizable(false)` there pins the window to its natural size and the hug would stop
   working.
   A double click anywhere on the clock calls `show_settings`, the same Rust path the tray
-  uses. Because the first press already starts the window move, the webview never reports
-  a dblclick for it, so the handler watches the second `mousedown` (click count ≥ 2) and
-  keeps `onDoubleClick` only for the case where no move was started.
+  uses.
+- **The drag is hand-rolled on macOS only** (`src/lib/drag.ts`). There tao hands the press to
+  `performWindowDragWithEvent:` with an `NSApp.currentEvent` that, by the time the IPC lands,
+  is a different event — or nil, and it fabricates a mouse-down. The window picks up a wrong
+  grab anchor: it jumps away from the cursor, and even a plain click shifts it. So on macOS
+  the clock reads its own origin once per press and writes `setPosition(origin + cursor
+  travel)` on the next animation frame: exact grab point, absolute maths so dropped frames
+  cannot drift, and nothing at all moves until the pointer travels 3 px — which is why a
+  click that only focuses the app no longer nudges the clock. Windows anchors its native
+  drag on `GetCursorPos` and GTK on the pointer position, so both keep the OS drag; it is
+  also the only option on Wayland, where a client may not position its own window. That is
+  what the tiny `platform` command is for.
 - **macOS above fullscreen is best-effort.** `set_visible_on_all_workspaces(true)` plus
   always-on-top joins all spaces, but Tauri does not expose
   `NSWindowCollectionBehaviorFullScreenAuxiliary`; floating over another app's fullscreen
