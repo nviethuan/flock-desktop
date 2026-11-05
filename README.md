@@ -257,3 +257,8 @@ npx tauri icon src-tauri/icons/app-icon.png
   which is extra build machinery for a tree that renders once per settings change.
 - **Not measured:** idle CPU/RAM figures. Measure with Activity Monitor / Task Manager /
   `ps` after a release build; the design targets < 1% idle in tick mode.
+
+Demo
+<p align="center">
+  <img src="demo/demo.gif" alt="Demo App" width="200">
+</p>
