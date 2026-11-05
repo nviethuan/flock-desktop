@@ -13,9 +13,13 @@ use crate::{
 
 pub const PICK_SKIN_EVENT: &str = "skin://pick";
 
-const BUILTIN_SKINS: [(&str, &str); 2] = [
+/// Kept in step with `BUILTIN_SKINS` in `src/lib/skins.ts` (keys and labels).
+const BUILTIN_SKINS: [(&str, &str); 5] = [
     ("builtin:default", "Default"),
     ("builtin:minimal", "Minimal"),
+    ("builtin:dial", "Classic"),
+    ("builtin:neon", "Neon"),
+    ("builtin:bauhaus", "Bauhaus"),
 ];
 
 /// Curated zones keep the submenu usable; `system` follows the OS setting.

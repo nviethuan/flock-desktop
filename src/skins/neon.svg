@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="Analog clock">
+  <defs>
+    <filter id="neon-glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="1.6" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Dark glass so the neon reads on a bright wallpaper -->
+  <circle cx="100" cy="100" r="96" fill="#050d14" fill-opacity="0.55" />
+  <circle cx="100" cy="100" r="95" fill="none" stroke="#2de2ff" stroke-opacity="0.4" stroke-width="1.1" />
+
+  <!-- Hour pips on an 88 unit circle -->
+  <g fill="#7ff2ff" fill-opacity="0.5">
+    <circle cx="100" cy="12" r="1.7" />
+    <circle cx="144" cy="23.79" r="1.7" />
+    <circle cx="176.21" cy="56" r="1.7" />
+    <circle cx="188" cy="100" r="1.7" />
+    <circle cx="176.21" cy="144" r="1.7" />
+    <circle cx="144" cy="176.21" r="1.7" />
+    <circle cx="100" cy="188" r="1.7" />
+    <circle cx="56" cy="176.21" r="1.7" />
+    <circle cx="23.79" cy="144" r="1.7" />
+    <circle cx="12" cy="100" r="1.7" />
+    <circle cx="23.79" cy="56" r="1.7" />
+    <circle cx="56" cy="23.79" r="1.7" />
+  </g>
+
+  <!-- Tracks: seconds, minutes, hours from the outside in -->
+  <g fill="none" stroke="#dff7ff" stroke-opacity="0.09">
+    <circle cx="100" cy="100" r="78" stroke-width="9" />
+    <circle cx="100" cy="100" r="64" stroke-width="8.5" />
+    <circle cx="100" cy="100" r="50" stroke-width="8" />
+  </g>
+
+  <!-- Progress rings. `pathLength="1"` turns the dash into a 0..1 fraction of the ring;
+       the painter rewrites `stroke-dasharray` (and, for the seconds, `stroke-dashoffset`)
+       every tick. The static values below are the ten-past-ten pose. -->
+  <g fill="none" stroke-linecap="round" transform="rotate(-90 100 100)" filter="url(#neon-glow)">
+    <circle id="second-ring" pathLength="1" cx="100" cy="100" r="78" stroke="#2de2ff" stroke-width="9" stroke-dasharray="0.3333 1" stroke-dashoffset="0.6667" />
+    <circle id="minute-ring" pathLength="1" cx="100" cy="100" r="64" stroke="#ff5cf2" stroke-width="8.5" stroke-dasharray="0.1778 1" />
+    <circle id="hour-ring" pathLength="1" cx="100" cy="100" r="50" stroke="#a97bff" stroke-width="8" stroke-dasharray="0.8472 1" />
+  </g>
+
+  <!-- Centre readout: the painter writes HH:mm here once a minute -->
+  <circle cx="100" cy="100" r="42" fill="#04111a" fill-opacity="0.88" />
+  <circle cx="100" cy="100" r="42" fill="none" stroke="#6ff3ff" stroke-opacity="0.22" stroke-width="1" />
+  <g filter="url(#neon-glow)">
+    <text
+      id="center-label"
+      x="100"
+      y="108.5"
+      fill="#eafcff"
+      font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+      font-size="24"
+      font-weight="600"
+      letter-spacing="-0.6"
+      text-anchor="middle"
+    >10:10</text>
+  </g>
+</svg>

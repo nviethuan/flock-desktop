@@ -1,7 +1,10 @@
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
+import bauhausSvg from '../skins/bauhaus.svg?raw';
 import defaultSvg from '../skins/default.svg?raw';
+import dialSvg from '../skins/dial.svg?raw';
 import minimalSvg from '../skins/minimal.svg?raw';
+import neonSvg from '../skins/neon.svg?raw';
 import { sanitizeSvg } from './sanitize-svg';
 
 export interface Skin {
@@ -18,9 +21,13 @@ interface BuiltinSkin {
   markup: string;
 }
 
+/** Kept in step with `BUILTIN_SKINS` in `src-tauri/src/tray.rs` (keys and labels). */
 export const BUILTIN_SKINS: readonly BuiltinSkin[] = [
   { key: 'builtin:default', label: 'Default', markup: defaultSvg },
   { key: 'builtin:minimal', label: 'Minimal', markup: minimalSvg },
+  { key: 'builtin:dial', label: 'Classic', markup: dialSvg },
+  { key: 'builtin:neon', label: 'Neon', markup: neonSvg },
+  { key: 'builtin:bauhaus', label: 'Bauhaus', markup: bauhausSvg },
 ];
 
 export const DEFAULT_SKIN_KEY = 'builtin:default';

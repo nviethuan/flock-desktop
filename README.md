@@ -47,7 +47,7 @@ src/
   lib/skins.ts             built-in + custom skins, cached, safe fallback
   lib/sanitize-svg.ts      DOMParser sanitizer + id validation
   lib/time.ts              Intl time-zone math, hand angles
-  skins/default.svg, minimal.svg
+  skins/default.svg, minimal.svg, dial.svg, neon.svg, bauhaus.svg
 src-tauri/
   src/main.rs, lib.rs
   src/settings.rs          Settings model, plugin-store writer, commands
@@ -101,11 +101,31 @@ npx tauri icon src-tauri/icons/app-icon.png
 - **The clock never re-renders per frame.** `useEffect` resolves `#hour-hand`,
   `#minute-hand`, `#second-hand` once per skin and writes `transform="rotate(deg cx cy)"`.
   React renders only on settings/skin/visibility changes.
+- **A ring skin reports progress, not angles.** Rings carry `pathLength="1"`, so the
+  painter writes `stroke-dasharray="<0..1> 1"` (a fraction of the ring, starting at twelve
+  because the group is rotated -90°) instead of a `transform`; an optional `#center-label`
+  `<text>` gets a live `HH:mm` for the clock's time zone, rewritten only when the minute
+  changes. Neon is such a skin: seconds ring outermost, then minutes, then hours, three
+  colours, `HH:mm` in the middle. The seconds ring alternates one minute at a time, both
+  phases clockwise: one minute is eaten from twelve towards the hand (a positive
+  `stroke-dashoffset` slides the dash forward, so the survivor is the arc behind the
+  hand), the next minute fills from twelve the normal way. Each phase ends exactly where
+  the next one starts — full meets full, empty meets empty — so nothing jumps. The minute
+  and hour rings keep filling clockwise.
 - **Skins are sanitized before they reach the DOM.** `lib/sanitize-svg.ts` parses with
   `DOMParser`, drops `script`/`foreignObject`/`image`/media elements, strips `on*`
   attributes, `javascript:`/`vbscript:`/`data:text/html` values, non-`#` `href`/`url()`
-  references and `@import`, then requires `#hour-hand`, `#minute-hand`, `#second-hand`
-  and a `viewBox`. Invalid files fall back to the built-in default and show a notice.
+  references and `@import`, then requires a `viewBox` plus a way to draw the time: all three
+  hands (`#hour-hand`, `#minute-hand`, `#second-hand`) or all three rings (`#second-ring`,
+  `#minute-ring`, `#hour-ring`). Invalid files fall back to the built-in default and show a
+  notice.
+- **Five built-in skins, two entry points.** Default, Minimal, Classic (paper face, gold
+  case, serif numerals), Neon (dark glass, glowing two-tone ring) and Bauhaus (primary
+  red quarter arc, black bars). `BUILTIN_SKINS` exists twice — `lib/skins.ts` for the
+  picker and the clock, `tray.rs` for the menu — and the keys/labels must stay in step.
+  Both the tray's Skin submenu and the analog Settings panel write the same `skinPath`;
+  the panel draws each skin as a tile with the hands posed at ten past ten, and its
+  "Load custom SVG…" button runs the same picker + sanitizer as the tray entry.
 - **Smooth mode is capped at 30 fps** (still visually smooth, roughly half the idle work of
   60 fps); tick mode aligns to the wall-clock second with `setInterval`.
 - **The digital display reuses the same single-writer setting** (`displayMode`,
@@ -124,7 +144,7 @@ npx tauri icon src-tauri/icons/app-icon.png
 - [ ] Double click the clock: the Settings panel opens beside it, in both analog and digital mode.
 - [ ] Drag anywhere on the clock to move it; dragging an edge must not resize it. In analog mode the window stays square (Size slider) and the face scales to fill it; position/size survive quit + relaunch.
 - [ ] `Cmd+Shift+O` toggles click-through both ways; tray "Click-through" also restores input.
-- [ ] Tray: Show/Hide label flips, Always on top checkmark toggles, opacity 100/80/60/40 applies, both built-in skins load, custom SVG loads or is rejected with a notice, time zone changes the displayed time, Launch at login adds/removes the login item.
+- [ ] Tray: Show/Hide label flips, Always on top checkmark toggles, opacity 100/80/60/40 applies, all five built-in skins load and can also be picked in Settings → Skin (tiles show the same face, hands at ten past ten), custom SVG loads or is rejected with a notice, time zone changes the displayed time, Launch at login adds/removes the login item.
 - [ ] Tray → Settings… opens the panel beside the clock; switching to Digital shows `HH:mm`, typing `hh:mm:ss A` or `yyyy-MM-dd HH:mm` updates the clock live, each of the six fonts renders in its own face, the Size slider (10–100 px) resizes the readout and the window hugs it, and Style → colour swatch + "Neon glow" + "Dark backdrop" repaint it (off = transparent, floating time).
 - [ ] Minimise or hide the clock: CPU drops to ~0% in Activity Monitor; restore and it resumes on the correct second.
 - [ ] Activity Monitor: idle CPU < 1% in tick mode, RAM is a Tauri webview baseline (no growth over 10 min).

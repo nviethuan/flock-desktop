@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="Analog clock">
+  <defs>
+    <radialGradient id="dial-paper" cx="50%" cy="36%" r="74%">
+      <stop offset="0%" stop-color="#fdfaf1" />
+      <stop offset="68%" stop-color="#f2ecdd" />
+      <stop offset="100%" stop-color="#ddd2ba" />
+    </radialGradient>
+    <linearGradient id="dial-case" x1="0.1" y1="0" x2="0.8" y2="1">
+      <stop offset="0%" stop-color="#d8b675" />
+      <stop offset="45%" stop-color="#8a6a35" />
+      <stop offset="100%" stop-color="#4a3517" />
+    </linearGradient>
+  </defs>
+
+  <!-- Brushed case, then paper -->
+  <circle cx="100" cy="100" r="99" fill="url(#dial-case)" />
+  <circle cx="100" cy="100" r="91" fill="url(#dial-paper)" />
+  <circle cx="100" cy="100" r="91" fill="none" stroke="#3a2b13" stroke-opacity="0.45" stroke-width="1" />
+
+  <!-- Sixty minute ticks (a dashed circle: dash width runs radially) -->
+  <circle
+    cx="100" cy="100" r="84" fill="none"
+    stroke="#3b2f19" stroke-opacity="0.42"
+    stroke-width="5" stroke-dasharray="0.8 7.99646"
+  />
+  <!-- Twelve hour ticks, twice as long -->
+  <circle
+    cx="100" cy="100" r="83.5" fill="none"
+    stroke="#2b2110" stroke-opacity="0.8"
+    stroke-width="9" stroke-dasharray="1.8 41.92045"
+  />
+
+  <!-- Numerals on a 68 unit circle -->
+  <g
+    fill="#2a2214"
+    font-family="Georgia, 'Times New Roman', serif"
+    font-size="15"
+    font-weight="600"
+    text-anchor="middle"
+  >
+    <text x="100" y="36.5">12</text>
+    <text x="134" y="45.6">1</text>
+    <text x="158.9" y="70.5">2</text>
+    <text x="168" y="104.5">3</text>
+    <text x="158.9" y="138.5">4</text>
+    <text x="134" y="163.4">5</text>
+    <text x="100" y="172.5">6</text>
+    <text x="66" y="163.4">7</text>
+    <text x="41.1" y="138.5">8</text>
+    <text x="32" y="104.5">9</text>
+    <text x="41.1" y="70.5">10</text>
+    <text x="66" y="45.6">11</text>
+  </g>
+
+  <g id="hour-hand">
+    <rect x="96.7" y="54" width="6.6" height="50" rx="3.1" fill="#1e3a5f" />
+  </g>
+  <g id="minute-hand">
+    <rect x="97.5" y="29" width="5" height="75" rx="2.4" fill="#1e3a5f" fill-opacity="0.94" />
+  </g>
+  <g id="second-hand">
+    <line x1="100" y1="24" x2="100" y2="115" stroke="#b3382c" stroke-width="1.6" stroke-linecap="round" />
+    <circle cx="100" cy="115" r="2.6" fill="#b3382c" />
+  </g>
+  <circle cx="100" cy="100" r="4.6" fill="#1e3a5f" />
+  <circle cx="100" cy="100" r="1.9" fill="#f2ecdd" />
+</svg>

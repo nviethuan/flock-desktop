@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="Analog clock">
+  <!-- Paper face -->
+  <circle cx="100" cy="100" r="95" fill="#f6f3ea" />
+  <circle cx="100" cy="100" r="95" fill="none" stroke="#161310" stroke-width="2.4" />
+
+  <!-- Primary red quarter arc from twelve to three -->
+  <circle
+    cx="100" cy="100" r="78" fill="none"
+    stroke="#d94a3d" stroke-width="12"
+    stroke-dasharray="122.522 367.566"
+    transform="rotate(-90 100 100)"
+  />
+  <!-- Blue disc at nine, yellow dot at six -->
+  <circle cx="34" cy="100" r="6.5" fill="#2c5aa0" />
+  <circle cx="100" cy="178" r="6" fill="#e8b422" />
+
+  <!-- Heavy quarters, thin minutes -->
+  <g stroke="#161310" stroke-linecap="round">
+    <line x1="100" y1="5" x2="100" y2="13" stroke-width="3" />
+    <line x1="195" y1="100" x2="187" y2="100" stroke-width="3" />
+    <line x1="100" y1="195" x2="100" y2="187" stroke-width="3" />
+    <line x1="5" y1="100" x2="13" y2="100" stroke-width="3" />
+    <line x1="147.5" y1="17.73" x2="143.5" y2="24.66" stroke-width="1.4" />
+    <line x1="182.27" y1="52.5" x2="175.34" y2="56.5" stroke-width="1.4" />
+    <line x1="182.27" y1="147.5" x2="175.34" y2="143.5" stroke-width="1.4" />
+    <line x1="147.5" y1="182.27" x2="143.5" y2="175.34" stroke-width="1.4" />
+    <line x1="52.5" y1="182.27" x2="56.5" y2="175.34" stroke-width="1.4" />
+    <line x1="17.73" y1="147.5" x2="24.66" y2="143.5" stroke-width="1.4" />
+    <line x1="17.73" y1="52.5" x2="24.66" y2="56.5" stroke-width="1.4" />
+    <line x1="52.5" y1="17.73" x2="56.5" y2="24.66" stroke-width="1.4" />
+  </g>
+
+  <g id="hour-hand">
+    <rect x="95.4" y="52" width="9.2" height="52" fill="#161310" />
+  </g>
+  <g id="minute-hand">
+    <rect x="97.2" y="26" width="5.6" height="78" fill="#161310" />
+  </g>
+  <g id="second-hand">
+    <line x1="100" y1="18" x2="100" y2="118" stroke="#d94a3d" stroke-width="2" />
+  </g>
+  <circle cx="100" cy="100" r="5.4" fill="#161310" />
+  <circle cx="100" cy="100" r="2" fill="#f6f3ea" />
+</svg>

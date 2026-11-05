@@ -1,6 +1,8 @@
 const MAX_SVG_BYTES = 512 * 1024;
 const SVG_NS = 'http://www.w3.org/2000/svg';
-const REQUIRED_IDS = ['hour-hand', 'minute-hand', 'second-hand'] as const;
+/** A skin draws the time with rotating hands, or with progress rings plus a centre label. */
+const HAND_IDS = ['hour-hand', 'minute-hand', 'second-hand'] as const;
+const RING_IDS = ['hour-ring', 'minute-ring', 'second-ring'] as const;
 
 /** Elements that can execute script, host HTML, or pull in remote content. */
 const FORBIDDEN_ELEMENTS = new Set([
@@ -22,7 +24,8 @@ export type SanitizeResult = { ok: true; markup: string } | { ok: false; reason:
  *
  * Rules: no script/HTML embedding elements, no event-handler attributes, no
  * `javascript:`/`vbscript:` payloads, and no references outside the file itself
- * (`href` must be a local `#id`, `url()` must be local). The returned markup is the
+ * (`href` must be a local `#id`, `url()` must be local). A skin must draw the time one
+ * way or the other: all three hands, or all three rings. The returned markup is the
  * only markup that may be passed to `dangerouslySetInnerHTML`.
  */
 export function sanitizeSvg(raw: string): SanitizeResult {
@@ -45,10 +48,11 @@ export function sanitizeSvg(raw: string): SanitizeResult {
 
   sanitizeTree(doc, root);
 
-  for (const id of REQUIRED_IDS) {
-    if (!root.querySelector(`#${id}`)) {
-      return { ok: false, reason: `missing a #${id} element` };
-    }
+  if (!hasAll(root, HAND_IDS) && !hasAll(root, RING_IDS)) {
+    return {
+      ok: false,
+      reason: `needs #${HAND_IDS.join(', #')} (hands) or #${RING_IDS.join(', #')} (rings)`,
+    };
   }
 
   root.setAttribute('width', '100%');
@@ -56,6 +60,10 @@ export function sanitizeSvg(raw: string): SanitizeResult {
   root.setAttribute('preserveAspectRatio', 'xMidYMid meet');
 
   return { ok: true, markup: new XMLSerializer().serializeToString(root) };
+}
+
+function hasAll(root: Element, ids: readonly string[]): boolean {
+  return ids.every((id) => root.querySelector(`#${id}`) !== null);
 }
 
 function sanitizeTree(doc: Document, root: Element): void {

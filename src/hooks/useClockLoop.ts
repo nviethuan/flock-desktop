@@ -73,8 +73,8 @@ export function useClockLoop({
         );
     } else {
       const host = hostRef.current;
-      const hands = host ? resolveHands(host) : null;
-      if (hands) paint = createAnalogPainter(hands, timeZone, smooth);
+      const targets = host ? resolveTargets(host) : null;
+      if (targets) paint = createAnalogPainter(targets, timeZone, smooth);
     }
 
     if (!paint) return;
@@ -136,36 +136,106 @@ export function useClockLoop({
   ]);
 }
 
-interface HandTargets {
-  hour: SVGElement;
-  minute: SVGElement;
-  second: SVGElement;
+/**
+ * Two ways a skin can show the time: rotating hands, or progress rings (seconds outside,
+ * then minutes, then hours) with an optional live `HH:mm` label in the middle.
+ */
+interface SkinTargets {
+  hands: { hour: SVGElement; minute: SVGElement; second: SVGElement } | null;
+  rings: { hour: SVGElement; minute: SVGElement; second: SVGElement } | null;
+  label: SVGElement | null;
   cx: number;
   cy: number;
 }
 
-function resolveHands(host: HTMLElement): HandTargets | null {
+function resolveTargets(host: HTMLElement): SkinTargets | null {
   const svg = host.querySelector<SVGSVGElement>('svg');
-  const hour = host.querySelector<SVGElement>('#hour-hand');
-  const minute = host.querySelector<SVGElement>('#minute-hand');
-  const second = host.querySelector<SVGElement>('#second-hand');
-  if (!svg || !hour || !minute || !second) return null;
+  if (!svg) return null;
+
+  const find = (id: string): SVGElement | null => host.querySelector<SVGElement>(`#${id}`);
+  const hour = find('hour-hand');
+  const minute = find('minute-hand');
+  const second = find('second-hand');
+  const hourRing = find('hour-ring');
+  const minuteRing = find('minute-ring');
+  const secondRing = find('second-ring');
+
+  const hands = hour && minute && second ? { hour, minute, second } : null;
+  const rings =
+    hourRing && minuteRing && secondRing
+      ? { hour: hourRing, minute: minuteRing, second: secondRing }
+      : null;
+  if (!hands && !rings) return null;
 
   const [cx, cy] = pivot(svg);
-  return { hour, minute, second, cx, cy };
+  return { hands, rings, label: find('center-label'), cx, cy };
 }
 
-function createAnalogPainter(targets: HandTargets, timeZone: string, smooth: boolean): () => void {
-  const { hour, minute, second, cx, cy } = targets;
+function createAnalogPainter(targets: SkinTargets, timeZone: string, smooth: boolean): () => void {
+  const { hands, rings, label, cx, cy } = targets;
+  let lastLabel = '';
 
   return () => {
     const clock = wallClock(timeZone, Date.now());
-    // Tick mode snaps the second hand to whole seconds.
-    const angles = handAngles(smooth ? clock : { h: clock.h, m: clock.m, s: Math.floor(clock.s) });
-    setRotation(hour, angles.hour, cx, cy);
-    setRotation(minute, angles.minute, cx, cy);
-    setRotation(second, angles.second, cx, cy);
+    // Tick mode snaps the hands and the rings to whole seconds.
+    const time = smooth ? clock : { h: clock.h, m: clock.m, s: Math.floor(clock.s) };
+
+    if (hands) {
+      const angles = handAngles(time);
+      setRotation(hands.hour, angles.hour, cx, cy);
+      setRotation(hands.minute, angles.minute, cx, cy);
+      setRotation(hands.second, angles.second, cx, cy);
+    }
+
+    if (rings) {
+      // Seconds alternate one minute at a time, both phases clockwise: an "empty" minute
+      // drains from twelve towards the hand, the next one fills the same way, so each
+      // phase ends exactly where the following one starts.
+      const progress = time.s / 60;
+      if (time.m % 2 === 1) {
+        setProgress(rings.second, progress);
+      } else {
+        const remaining = 1 - progress;
+        setProgress(rings.second, remaining, 2 * remaining);
+      }
+      setProgress(rings.minute, (time.m + time.s / 60) / 60);
+      // The hour ring wraps every twelve hours, the other two every sixty units.
+      setProgress(rings.hour, ((time.h % 12) + time.m / 60) / 12);
+    }
+
+    if (label) {
+      const text = `${pad2(time.h)}:${pad2(time.m)}`;
+      if (text !== lastLabel) {
+        lastLabel = text;
+        label.textContent = text;
+      }
+    }
   };
+}
+
+/**
+ * Rings carry `pathLength="1"`, so the dash is a fraction of the ring and the painter
+ * never has to know a circumference.
+ *
+ * A positive `dashOffset` slides the dash forward, which is how the seconds ring is eaten
+ * from twelve instead of growing away from it: with a dash of `p`, offsetting by `2p`
+ * leaves the arc between the second hand and twelve.
+ */
+function setProgress(ring: SVGElement, fraction: number, dashOffset = 0): void {
+  const value = Math.max(0, Math.min(1, fraction));
+  const dash = `${value.toFixed(4)} 1`;
+  if (ring.getAttribute('stroke-dasharray') !== dash) {
+    ring.setAttribute('stroke-dasharray', dash);
+  }
+  // Always written, so a ring that switches back to growing starts from twelve again.
+  const offset = Math.max(0, dashOffset).toFixed(4);
+  if (ring.getAttribute('stroke-dashoffset') !== offset) {
+    ring.setAttribute('stroke-dashoffset', offset);
+  }
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, '0');
 }
 
 /** Never shrink past this, even if the pattern is absurd. */

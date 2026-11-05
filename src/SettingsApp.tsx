@@ -1,4 +1,4 @@
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useSettings } from './hooks/useSettings';
 import { DIGITAL_COLORS, digitalColorLabel, digitalTextStyle } from './lib/colors';
@@ -13,6 +13,7 @@ import {
   updateSettings,
 } from './lib/settings';
 import type { Settings } from './lib/settings';
+import { BUILTIN_SKINS, chooseSkinFile, describeError, loadSkin } from './lib/skins';
 
 export default function SettingsApp() {
   use(settingsReady());
@@ -35,6 +36,7 @@ function SettingsForm({ settings }: { settings: Settings }) {
   const [format, setFormat] = useState(settings.digitalFormat);
   const [size, setSize] = useState(settings.digitalSize);
   const [side, setSide] = useState(analogSide(settings));
+  const [skinError, setSkinError] = useState<string | null>(null);
 
   // Keep the controls in step when the value changes elsewhere (tray, another window).
   useEffect(() => {
@@ -77,7 +79,21 @@ function SettingsForm({ settings }: { settings: Settings }) {
     return () => window.clearTimeout(timer);
   }, [side, settings]);
 
+  // The tray cannot open a dialog, so the settings window owns the custom-skin picker.
+  const pickSkin = async (): Promise<void> => {
+    try {
+      setSkinError(null);
+      const picked = await chooseSkinFile();
+      if (picked) await updateSettings({ skinPath: picked.path });
+    } catch (error) {
+      setSkinError(describeError(error));
+    }
+  };
+
   const isDigital = settings.displayMode === 'digital';
+  const customSkin = settings.skinPath.startsWith('builtin:')
+    ? null
+    : (settings.skinPath.split(/[/\\]/).pop() ?? settings.skinPath);
   const empty = format.trim().length === 0;
   const tooLong = format.length > 64;
   const preview = previewFormat(settings.timeZone, format);
@@ -110,25 +126,61 @@ function SettingsForm({ settings }: { settings: Settings }) {
       </section>
 
       {!isDigital ? (
-        <section className="settings__section">
-          <h2>Size</h2>
-          <div className="settings__range">
-            <input
-              type="range"
-              min={ANALOG_SIZE_MIN}
-              max={ANALOG_SIZE_MAX}
-              step={4}
-              value={side}
-              aria-label="Analog clock size in pixels"
-              onChange={(event) => setSide(Number(event.target.value))}
-            />
-            <output className="settings__rangeValue">{side}px</output>
-          </div>
-          <p className="settings__hint">
-            The face is square, so this is the window side and the skin scales to fill it. The skin
-            itself comes from the tray menu.
-          </p>
-        </section>
+        <>
+          <section className="settings__section">
+            <h2>Skin</h2>
+            <div className="skins" role="group" aria-label="Clock skin">
+              {BUILTIN_SKINS.map((entry) => (
+                <button
+                  key={entry.key}
+                  type="button"
+                  className="skins__option"
+                  aria-pressed={settings.skinPath === entry.key}
+                  onClick={() => void updateSettings({ skinPath: entry.key })}
+                >
+                  <SkinThumb markupKey={entry.key} />
+                  <span className="skins__label">{entry.label}</span>
+                </button>
+              ))}
+            </div>
+            <div className="skins__custom">
+              <button type="button" className="skins__pick" onClick={() => void pickSkin()}>
+                Load custom SVG…
+              </button>
+              <span className="skins__customName">{customSkin ?? 'No file loaded'}</span>
+            </div>
+            {skinError ? (
+              <p className="settings__warning" role="status">
+                {skinError}
+              </p>
+            ) : null}
+            <p className="settings__hint">
+              Skins are SVG files that draw the time with hands (#hour-hand, #minute-hand,
+              #second-hand) or with progress rings (#second-ring, #minute-ring, #hour-ring). They
+              are sanitized before they are shown: no scripts, no remote images. The tray menu
+              offers the same list.
+            </p>
+          </section>
+          <section className="settings__section">
+            <h2>Size</h2>
+            <div className="settings__range">
+              <input
+                type="range"
+                min={ANALOG_SIZE_MIN}
+                max={ANALOG_SIZE_MAX}
+                step={4}
+                value={side}
+                aria-label="Analog clock size in pixels"
+                onChange={(event) => setSide(Number(event.target.value))}
+              />
+              <output className="settings__rangeValue">{side}px</output>
+            </div>
+            <p className="settings__hint">
+              The face is square, so this is the window side and the skin scales to fill it. The skin
+              itself comes from the tray menu.
+            </p>
+          </section>
+        </>
       ) : null}
 
       {isDigital ? (
@@ -287,4 +339,41 @@ function SettingsForm({ settings }: { settings: Settings }) {
       </footer>
     </div>
   );
+}
+
+/** Hands at ten past ten, so a tile reads as a clock instead of hands stacked at twelve. */
+const THUMB_POSE: readonly (readonly [string, number])[] = [
+  ['hour-hand', 305],
+  ['minute-hand', 60],
+  ['second-hand', 240],
+];
+
+function SkinThumb({ markupKey }: { markupKey: string }) {
+  const host = useRef<HTMLDivElement | null>(null);
+  const [markup, setMarkup] = useState('');
+
+  // `loadSkin` sanitizes the file; its markup is the only thing that may be injected here.
+  useEffect(() => {
+    let alive = true;
+    void loadSkin(markupKey).then((skin) => {
+      if (alive) setMarkup(skin.markup);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [markupKey]);
+
+  // The clock window rotates the hands from the painter; a thumbnail has to pose them once.
+  useEffect(() => {
+    const svg = host.current?.querySelector('svg');
+    const box = svg?.viewBox.baseVal;
+    if (!svg || !box) return;
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+    for (const [id, angle] of THUMB_POSE) {
+      svg.querySelector<SVGElement>(`#${id}`)?.setAttribute('transform', `rotate(${angle} ${cx} ${cy})`);
+    }
+  }, [markup]);
+
+  return <div className="skins__thumb" ref={host} dangerouslySetInnerHTML={{ __html: markup }} />;
 }
