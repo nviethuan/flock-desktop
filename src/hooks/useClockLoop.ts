@@ -188,11 +188,11 @@ function createAnalogPainter(targets: SkinTargets, timeZone: string, smooth: boo
     }
 
     if (rings) {
-      // Seconds alternate one minute at a time, both phases clockwise: an "empty" minute
-      // drains from twelve towards the hand, the next one fills the same way, so each
+      // Seconds alternate one minute at a time, both phases clockwise: an even minute
+      // fills from twelve towards the hand, the next one is drained the same way, so each
       // phase ends exactly where the following one starts.
       const progress = time.s / 60;
-      if (time.m % 2 === 1) {
+      if (time.m % 2 === 0) {
         setProgress(rings.second, progress);
       } else {
         const remaining = 1 - progress;

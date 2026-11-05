@@ -107,11 +107,11 @@ npx tauri icon src-tauri/icons/app-icon.png
   `<text>` gets a live `HH:mm` for the clock's time zone, rewritten only when the minute
   changes. Neon is such a skin: seconds ring outermost, then minutes, then hours, three
   colours, `HH:mm` in the middle. The seconds ring alternates one minute at a time, both
-  phases clockwise: one minute is eaten from twelve towards the hand (a positive
-  `stroke-dashoffset` slides the dash forward, so the survivor is the arc behind the
-  hand), the next minute fills from twelve the normal way. Each phase ends exactly where
-  the next one starts — full meets full, empty meets empty — so nothing jumps. The minute
-  and hour rings keep filling clockwise.
+  phases clockwise: an even minute fills from twelve the normal way, the next one is eaten
+  from twelve towards the hand (a positive `stroke-dashoffset` slides the dash forward, so
+  the survivor is the arc behind the hand). Each phase ends exactly where the next one
+  starts — full meets full, empty meets empty — so nothing jumps. The minute and hour rings
+  keep filling clockwise.
 - **Skins are sanitized before they reach the DOM.** `lib/sanitize-svg.ts` parses with
   `DOMParser`, drops `script`/`foreignObject`/`image`/media elements, strips `on*`
   attributes, `javascript:`/`vbscript:`/`data:text/html` values, non-`#` `href`/`url()`
