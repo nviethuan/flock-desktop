@@ -3,6 +3,7 @@
  *
  * Patterns follow the usual ISO/Unicode token style: `HH:mm` (24h), `hh:mm A` (12h),
  * `yyyy-MM-dd HH:mm:ss` (ISO 8601). Literal text goes in single quotes, e.g. `HH:mm 'UTC'`.
+ * `\n` starts a new line, since the format field is a single-line input: `HH:mm\nEEE`.
  */
 
 export const DEFAULT_FORMAT = 'HH:mm';
@@ -13,6 +14,7 @@ export const FORMAT_PRESETS = [
   'HH:mm:ss',
   'hh:mm A',
   'EEE HH:mm',
+  'EEE\\nHH:mm',
   'yyyy-MM-dd',
   'yyyy-MM-dd HH:mm:ss',
 ] as const;
@@ -32,6 +34,7 @@ export const FORMAT_TOKENS = [
   ['MMMM / MMM', 'month name, long / short'],
   ['MM / M', 'month number'],
   ['dd / d', 'day'],
+  ['\\n', 'line break'],
 ] as const;
 
 interface DateParts {
@@ -74,6 +77,24 @@ const TOKENS = [
 
 const formatters = new Map<string, Intl.DateTimeFormat>();
 const compiled = new Map<string, Piece[]>();
+
+/** `\n` breaks the line; a backslash otherwise quotes the next character. */
+const ESCAPES: Record<string, string> = { n: '\n' };
+
+function unescape(text: string): string {
+  let output = '';
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index] ?? '';
+    const next = text[index + 1];
+    if (char !== '\\' || next === undefined) {
+      output += char;
+      continue;
+    }
+    output += ESCAPES[next] ?? next;
+    index += 1;
+  }
+  return output;
+}
 
 export function isValidFormat(pattern: string): boolean {
   return pattern.trim().length > 0 && pattern.length <= MAX_FORMAT_LENGTH;
@@ -218,15 +239,24 @@ function parse(source: string): Piece[] {
   while (index < source.length) {
     const char = source[index] ?? '';
 
+    // `\n` is the only way to type a line break in a single-line field, and a backslash
+    // otherwise quotes the next character, so a token letter can be printed literally.
+    if (char === '\\') {
+      const next = source[index + 1];
+      literal += next === undefined ? '\\' : (ESCAPES[next] ?? next);
+      index += next === undefined ? 1 : 2;
+      continue;
+    }
+
     if (char === "'") {
       const end = source.indexOf("'", index + 1);
       if (end === -1) {
-        literal += source.slice(index + 1);
+        literal += unescape(source.slice(index + 1));
         break;
       }
       const quoted = source.slice(index + 1, end);
       // `''` is an escaped quote, matching ICU behaviour.
-      literal += quoted === '' ? "'" : quoted;
+      literal += quoted === '' ? "'" : unescape(quoted);
       index = end + 1;
       continue;
     }

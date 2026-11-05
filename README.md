@@ -160,6 +160,11 @@ npx tauri icon src-tauri/icons/app-icon.png
 - **Digital formats are token based, not ICU complete.** Supported: `HH H hh h mm m ss s`,
   `a A`, `EEE EEEE`, `yyyy yy`, `MMMM MMM MM M`, `dd d`. Literal text must be quoted
   (`HH:mm 'UTC'`) because token letters are matched first (`at` would render as `AMt`).
+  `\n` starts a new line (`HH:mm\nEEE` shows the time above the weekday); the format
+  field is single-line, so that escape is the only way to break it. Any other backslash
+  quotes the next character, which is how a token letter is printed literally (`\h`). The
+  hug measures the whole block, so a two-line readout gets a window twice as tall, and the
+  preview in Settings breaks the same way.
 - **Digital size is the user's choice, in CSS pixels** (`digitalSize`, 10–100, default
   44), never a function of the pattern or of the window. The window hugs the readout: on
   every size/format/font change the webview measures the text and calls

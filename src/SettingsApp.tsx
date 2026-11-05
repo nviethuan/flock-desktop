@@ -125,8 +125,8 @@ function SettingsForm({ settings }: { settings: Settings }) {
             <output className="settings__rangeValue">{side}px</output>
           </div>
           <p className="settings__hint">
-            The face is square, so this is the window side and the skin scales to fill it. Drag the
-            clock's edge to resize the same way; the skin itself comes from the tray menu.
+            The face is square, so this is the window side and the skin scales to fill it. The skin
+            itself comes from the tray menu.
           </p>
         </section>
       ) : null}
@@ -181,7 +181,9 @@ function SettingsForm({ settings }: { settings: Settings }) {
                   </div>
                 ))}
               </dl>
-              <p className="settings__hint">Wrap literal text in single quotes, e.g. HH:mm 'UTC'.</p>
+              <p className="settings__hint">
+                {"Wrap literal text in single quotes, e.g. HH:mm 'UTC'. Type \\n to start a new line, e.g. HH:mm\\nEEE."}
+              </p>
             </details>
           </section>
 
