@@ -502,6 +502,14 @@ function SettingsForm({ settings, clock, onSelect }: SettingsFormProps) {
       </section>
 
       <footer className="settings__footer">
+        {/* The panel is the only place to quit once the Dock icon (and so `Cmd+Q`) is gone. */}
+        <button
+          type="button"
+          className="settings__quit"
+          onClick={() => void invoke('quit_app')}
+        >
+          Quit Flock
+        </button>
         <button
           type="button"
           className="settings__close"

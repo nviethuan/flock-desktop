@@ -575,7 +575,26 @@ body.window--settings {
 .settings__footer {
   margin-top: auto;
   display: flex;
+  align-items: center;
+  gap: 8px;
   justify-content: flex-end;
+}
+
+/* Quit sits away from Close: it stops the whole app, not just the panel. */
+.settings__quit {
+  margin-right: auto;
+  padding: 7px 16px;
+  border: 0;
+  border-radius: 8px;
+  background: #3a2a2f;
+  color: #f4d8dc;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.settings__quit:hover {
+  background: #4d343a;
 }
 
 .settings__close {

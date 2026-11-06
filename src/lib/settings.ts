@@ -59,11 +59,16 @@ export interface Settings {
   clickThrough: boolean;
   smooth: boolean;
   launchAtLogin: boolean;
+  /** macOS only: the app runs as an accessory, so it has no Dock icon. */
+  hideDockIcon: boolean;
 }
 
 /** App-wide switches; the look of one clock is a `ClockPatch`. */
 export type SettingsPatch = Partial<
-  Pick<Settings, 'opacity' | 'alwaysOnTop' | 'clickThrough' | 'smooth' | 'launchAtLogin'>
+  Pick<
+    Settings,
+    'opacity' | 'alwaysOnTop' | 'clickThrough' | 'smooth' | 'launchAtLogin' | 'hideDockIcon'
+  >
 >;
 
 /** Bounds are owned by the window itself, so they are not part of a look patch. */

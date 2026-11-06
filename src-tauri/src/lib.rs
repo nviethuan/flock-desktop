@@ -26,6 +26,7 @@ pub fn run() {
             win::resize_clock_box,
             win::close_settings,
             win::show_settings,
+            win::quit_app,
             win::platform,
         ])
         .setup(|app| {
@@ -34,6 +35,8 @@ pub fn run() {
 
             app.manage(settings::SettingsState::new(loaded.clone()));
             settings::apply_autostart(&handle, loaded.launch_at_login);
+            // Before the first window exists, so the Dock icon never flashes on launch.
+            win::apply_dock_visibility(&handle, loaded.hide_dock_icon);
 
             // Every clock is its own window, so none of them comes from tauri.conf.json.
             win::setup(&handle, &loaded)?;

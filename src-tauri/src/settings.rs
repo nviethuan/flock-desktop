@@ -180,6 +180,15 @@ pub struct Settings {
     pub click_through: bool,
     pub smooth: bool,
     pub launch_at_login: bool,
+    /// macOS only: accessory app, so no Dock icon and no Cmd-Tab entry. A desktop clock
+    /// has no windows to manage, so the tray is the entry point instead.
+    /// Defaulted on its own, because `Settings`' container default would give `false`.
+    #[serde(default = "default_true")]
+    pub hide_dock_icon: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for Settings {
@@ -191,6 +200,7 @@ impl Default for Settings {
             click_through: false,
             smooth: true,
             launch_at_login: false,
+            hide_dock_icon: true,
         }
     }
 }
@@ -204,6 +214,7 @@ pub struct SettingsPatch {
     pub click_through: Option<bool>,
     pub smooth: Option<bool>,
     pub launch_at_login: Option<bool>,
+    pub hide_dock_icon: Option<bool>,
 }
 
 impl SettingsPatch {
@@ -222,6 +233,9 @@ impl SettingsPatch {
         }
         if let Some(value) = self.launch_at_login {
             settings.launch_at_login = value;
+        }
+        if let Some(value) = self.hide_dock_icon {
+            settings.hide_dock_icon = value;
         }
     }
 }
@@ -295,6 +309,7 @@ struct GlobalsPatch {
     click_through: Option<bool>,
     smooth: Option<bool>,
     launch_at_login: Option<bool>,
+    hide_dock_icon: Option<bool>,
 }
 
 pub struct SettingsState {
@@ -474,6 +489,7 @@ fn migrate_legacy(value: Value) -> Settings {
         click_through: globals.click_through.unwrap_or(defaults.click_through),
         smooth: globals.smooth.unwrap_or(defaults.smooth),
         launch_at_login: globals.launch_at_login.unwrap_or(defaults.launch_at_login),
+        hide_dock_icon: globals.hide_dock_icon.unwrap_or(defaults.hide_dock_icon),
     };
     normalize(&mut settings);
     settings
@@ -527,6 +543,9 @@ pub fn apply_patch(app: &AppHandle, patch: SettingsPatch) -> Settings {
     }
     if previous.launch_at_login != updated.launch_at_login {
         apply_autostart(app, updated.launch_at_login);
+    }
+    if previous.hide_dock_icon != updated.hide_dock_icon {
+        win::apply_dock_visibility(app, updated.hide_dock_icon);
     }
 
     persist(app, &updated);

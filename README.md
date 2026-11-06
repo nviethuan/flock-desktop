@@ -121,6 +121,13 @@ npx tauri icon src-tauri/icons/app-icon.png
   array is parsed as the flat `{ x, y, skinPath, displayMode, … }` shape and becomes one
   `clock-1`; the app-wide switches (`opacity`, always-on-top, click-through, smooth, launch
   at login) stay global, because the tray drives them for the whole app.
+- **macOS hides the Dock icon by default.** The app runs as an accessory
+  (`ActivationPolicy::Accessory`), so it has no Dock icon, no Cmd-Tab entry and no app menu —
+  a desktop clock has no documents to switch between, and the tray item is the entry point.
+  `hideDockIcon` is a global switch (tray → "Hide Dock icon", on by default) applied in
+  `setup` before the first window exists, so no icon flashes at launch; `apply_dock_visibility`
+  re-applies it live, and unchecking it returns to `Regular` without a restart. Windows and
+  Linux have no Dock, so the menu item is only added on macOS.
 - **The clock never re-renders per frame.** `useEffect` resolves `#hour-hand`,
   `#minute-hand`, `#second-hand` once per skin and writes `transform="rotate(deg cx cy)"`.
   React renders only on settings/skin/visibility changes.
@@ -163,12 +170,14 @@ npx tauri icon src-tauri/icons/app-icon.png
 
 ### macOS
 
-- [ ] Window is 220×220, frameless, transparent, always on top, absent from the Dock's app switcher list behaviour is unchanged (see limitations).
+- [ ] Window is 220×220, frameless, transparent, always on top.
+- [ ] No Dock icon and no Cmd-Tab entry by default; tray → "Hide Dock icon" unchecked brings both back without a restart, and the clock keeps ticking through the switch.
 - [ ] Double click the clock: the Settings panel opens beside it, in both analog and digital mode, and selects that clock in the list.
 - [ ] Settings → Clocks → "Add clock" opens a second window with the same look, offset a little; switching it to Digital, another skin, another time zone or another size changes only that clock, "×" removes it (disabled while a single clock is left), and both clocks come back with their own look, position and size after quit + relaunch.
 - [ ] Drag anywhere on the clock to move it; dragging an edge must not resize it. In analog mode the window stays square (Size slider) and the face scales to fill it; position/size survive quit + relaunch.
 - [ ] `Cmd+Shift+O` toggles click-through both ways; tray "Click-through" also restores input.
 - [ ] Tray: Show/Hide label flips (and hides/shows every clock), Always on top checkmark toggles, opacity 100/80/60/40 applies, all five built-in skins load on every clock and can also be picked in Settings → Skin (tiles show the same face, hands at ten past ten), custom SVG loads into the focused clock or is rejected with a notice, time zone changes the displayed time, Launch at login adds/removes the login item.
+- [ ] "Quit Flock" at the bottom of the panel and the tray's "Quit Flock" both exit the app and keep the clock positions for the next launch.
 - [ ] Tray → Settings… opens the panel beside the clock; switching to Digital shows `HH:mm`, typing `hh:mm:ss A` or `yyyy-MM-dd HH:mm` updates the clock live, each of the six fonts renders in its own face, the Size slider (10–100 px) resizes the readout and the window hugs it, and Style → colour swatch + "Neon glow" + "Dark backdrop" repaint it (off = transparent, floating time).
 - [ ] Minimise or hide the clock: CPU drops to ~0% in Activity Monitor; restore and it resumes on the correct second.
 - [ ] Activity Monitor: idle CPU < 1% in tick mode, RAM is a Tauri webview baseline (no growth over 10 min).
@@ -198,6 +207,11 @@ npx tauri icon src-tauri/icons/app-icon.png
 
 ## Known limitations
 
+- **A hidden Dock icon also hides the app menu.** While `hideDockIcon` is on, macOS shows no
+  Flock menu bar when a window is focused, so `Cmd+Q` and the Edit menu are gone; Quit lives in
+  the tray and in a "Quit Flock" button at the bottom of the panel (both go through the same
+  `persist_now` + exit path), and the panel has no free-text field, so nothing else needs the
+  Edit menu.
 - **The settings window is created on demand** from the tray ("Settings…") or a clock's
   double click, so it is not part of the clock's always-on-top stack. It opens beside the
   clock it will edit when there is room on the monitor, otherwise centred; while it is open,

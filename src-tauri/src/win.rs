@@ -41,6 +41,30 @@ pub fn setup(app: &AppHandle, settings: &Settings) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Hides the Dock icon on macOS by switching the app to the accessory policy.
+///
+/// The clock windows, the tray item and the settings panel all keep working; what goes away
+/// is the Dock icon, the Cmd-Tab entry and the app menu (the tray carries Quit). Switching
+/// back to `Regular` restores all of them without a restart.
+pub fn apply_dock_visibility(app: &AppHandle, hidden: bool) {
+    #[cfg(target_os = "macos")]
+    {
+        let policy = if hidden {
+            tauri::ActivationPolicy::Accessory
+        } else {
+            tauri::ActivationPolicy::Regular
+        };
+        if let Err(error) = app.set_activation_policy(policy) {
+            eprintln!("flock: could not change the activation policy: {error}");
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Windows and Linux have no Dock; the switch is macOS-only and stays invisible there.
+        let _ = (app, hidden);
+    }
+}
+
 /// Every window that shows a clock, in no particular order.
 pub fn clock_windows(app: &AppHandle) -> Vec<WebviewWindow> {
     app.webview_windows()
@@ -278,6 +302,16 @@ pub fn platform() -> &'static str {
 #[tauri::command]
 pub fn show_settings(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
     open_settings(&app, Some(window.label().to_string()))
+}
+
+/// Quit from the panel: same path as the tray's Quit (save bounds, then leave).
+///
+/// It has to live somewhere in the UI because hiding the Dock icon also hides the app menu,
+/// which takes `Cmd+Q` with it.
+#[tauri::command]
+pub fn quit_app(app: AppHandle) {
+    settings::persist_now(&app);
+    app.exit(0);
 }
 
 /// Clock that most recently had keyboard focus, so the tray knows which one it means.

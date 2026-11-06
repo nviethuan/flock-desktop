@@ -31,6 +31,7 @@ pub struct TrayMenu {
     click_through: CheckMenuItem<Wry>,
     smooth: CheckMenuItem<Wry>,
     autostart: CheckMenuItem<Wry>,
+    hide_dock: CheckMenuItem<Wry>,
     opacity: Vec<(u8, CheckMenuItem<Wry>)>,
     skins: Vec<(String, CheckMenuItem<Wry>)>,
     custom_skin: CheckMenuItem<Wry>,
@@ -74,6 +75,15 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         "Launch at login",
         true,
         settings.launch_at_login,
+        None::<&str>,
+    )?;
+    // Built on every platform so the state stays uniform; only macOS puts it in the menu.
+    let hide_dock = CheckMenuItem::with_id(
+        app,
+        "app:hide-dock",
+        "Hide Dock icon",
+        true,
+        settings.hide_dock_icon,
         None::<&str>,
     )?;
 
@@ -227,6 +237,8 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     items.push(&separator_bottom);
     items.push(&smooth);
     items.push(&autostart);
+    #[cfg(target_os = "macos")]
+    items.push(&hide_dock);
     items.push(&settings_open);
     items.push(&quit);
 
@@ -261,6 +273,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         click_through,
         smooth,
         autostart,
+        hide_dock,
         opacity: opacity_items,
         skins: skin_items,
         custom_skin,
@@ -286,6 +299,7 @@ pub fn refresh(app: &AppHandle) {
     let _ = menu.click_through.set_checked(settings.click_through);
     let _ = menu.smooth.set_checked(settings.smooth);
     let _ = menu.autostart.set_checked(settings.launch_at_login);
+    let _ = menu.hide_dock.set_checked(settings.hide_dock_icon);
     let _ = menu.custom_skin.set_checked(
         settings
             .clocks
@@ -390,6 +404,16 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
                 app,
                 SettingsPatch {
                     launch_at_login: Some(next),
+                    ..SettingsPatch::default()
+                },
+            );
+        }
+        "app:hide-dock" => {
+            let next = !current(app).hide_dock_icon;
+            settings::apply_patch(
+                app,
+                SettingsPatch {
+                    hide_dock_icon: Some(next),
                     ..SettingsPatch::default()
                 },
             );
