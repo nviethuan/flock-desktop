@@ -1,8 +1,10 @@
 # Flock
 
-An always-on-top clock in a frameless, transparent 220×220 window.
+Always-on-top clocks, each in its own frameless, transparent 220×220 window.
 Tauri v2 + React 19 + TypeScript, SVG analog skins or a digital readout with an editable
 ISO-style pattern and six bundled typefaces, tray menu, click-through mode, IANA time zones.
+The Settings panel adds, styles and removes one clock at a time, so several faces — and
+several cities — can live on the same desktop.
 
 ## Versions assumed
 
@@ -32,8 +34,9 @@ tsconfig.json
 vite.config.ts
 src/
   main.tsx                 createRoot + Suspense, routes clock vs settings by window label
-  App.tsx                  settings/skin orchestration, tray "choose skin" handler
-  SettingsApp.tsx          settings window: display mode, format, font, size, style
+  App.tsx                  draws the clock whose id matches this window's label
+  SettingsApp.tsx          settings window: clock list (add/remove/select) plus display mode,
+                           format, font, size, style and time zone of the selected clock
   styles.css               transparent html/body/#root, clock + settings styles
   assets/fonts/            vendored woff2 faces + generated fonts.css + LICENSE.md
   components/Clock.tsx     drag region, analog skin host or digital text node
@@ -50,10 +53,11 @@ src/
   skins/default.svg, minimal.svg, dial.svg, neon.svg, bauhaus.svg
 src-tauri/
   src/main.rs, lib.rs
-  src/settings.rs          Settings model, plugin-store writer, commands
-  src/tray.rs              tray menu + checkmark sync
-  src/win.rs               bounds restore/persist, square lock, visibility,
-                           settings window creation/placement
+  src/settings.rs          Settings model (a list of clocks), store writer, clock commands,
+                           migration from the single-clock store
+  src/tray.rs              tray menu + checkmark sync (look items apply to every clock)
+  src/win.rs               one window per clock, bounds restore/persist, square lock,
+                           visibility, settings window creation/placement
   tauri.conf.json
   capabilities/default.json
   icons/                   generated app icons + tray.png (template glyph)
@@ -98,6 +102,25 @@ npx tauri icon src-tauri/icons/app-icon.png
   `get_settings` + the `settings://changed` event, wrapped in `lib/settings.ts` with
   `subscribe`/`getSnapshot` for `useSyncExternalStore`. The JS `plugin-store` package is
   therefore intentionally not a dependency.
+- **One window per clock.** The snapshot holds `clocks: [...]`, and each entry's `id` *is*
+  its window label (`clock-1`, `clock-2`, …). Nothing refers to a fixed `main` window: the
+  bounds recorder and every look patch resolve their window by label, and each clock window
+  finds its own entry with `clockForLabel` (`label → id`). `win::setup` builds a window per
+  clock at launch, `add_clock` builds one at runtime (the entry joins the snapshot before
+  the window, so the new webview's first `get_settings` already finds it) and `remove_clock`
+  destroys it — `destroy` skips the close-to-hide handler on purpose. A new clock starts as
+  a copy of the last one, offset 36 px, and `MAX_CLOCKS` is 8. `tauri.conf.json` declares no
+  windows, so the window options live in `win::create_clock`; the capability matches them
+  with the glob `clock-*`.
+- **The clock list is the clock switcher.** The panel edits whichever clock is selected;
+  a double click on a clock opens the panel for *that* window (the label travels in the
+  panel URL, and in a `settings://focus-clock` event when the panel is already open).
+  Bounds are recorded per clock, so every window keeps its own position and size across a
+  relaunch, and the tray's look submenus write the same patch to every clock.
+- **The old single-clock store is migrated on load.** A `settings.json` without a `clocks`
+  array is parsed as the flat `{ x, y, skinPath, displayMode, … }` shape and becomes one
+  `clock-1`; the app-wide switches (`opacity`, always-on-top, click-through, smooth, launch
+  at login) stay global, because the tray drives them for the whole app.
 - **The clock never re-renders per frame.** `useEffect` resolves `#hour-hand`,
   `#minute-hand`, `#second-hand` once per skin and writes `transform="rotate(deg cx cy)"`.
   React renders only on settings/skin/visibility changes.
@@ -141,10 +164,11 @@ npx tauri icon src-tauri/icons/app-icon.png
 ### macOS
 
 - [ ] Window is 220×220, frameless, transparent, always on top, absent from the Dock's app switcher list behaviour is unchanged (see limitations).
-- [ ] Double click the clock: the Settings panel opens beside it, in both analog and digital mode.
+- [ ] Double click the clock: the Settings panel opens beside it, in both analog and digital mode, and selects that clock in the list.
+- [ ] Settings → Clocks → "Add clock" opens a second window with the same look, offset a little; switching it to Digital, another skin, another time zone or another size changes only that clock, "×" removes it (disabled while a single clock is left), and both clocks come back with their own look, position and size after quit + relaunch.
 - [ ] Drag anywhere on the clock to move it; dragging an edge must not resize it. In analog mode the window stays square (Size slider) and the face scales to fill it; position/size survive quit + relaunch.
 - [ ] `Cmd+Shift+O` toggles click-through both ways; tray "Click-through" also restores input.
-- [ ] Tray: Show/Hide label flips, Always on top checkmark toggles, opacity 100/80/60/40 applies, all five built-in skins load and can also be picked in Settings → Skin (tiles show the same face, hands at ten past ten), custom SVG loads or is rejected with a notice, time zone changes the displayed time, Launch at login adds/removes the login item.
+- [ ] Tray: Show/Hide label flips (and hides/shows every clock), Always on top checkmark toggles, opacity 100/80/60/40 applies, all five built-in skins load on every clock and can also be picked in Settings → Skin (tiles show the same face, hands at ten past ten), custom SVG loads into the focused clock or is rejected with a notice, time zone changes the displayed time, Launch at login adds/removes the login item.
 - [ ] Tray → Settings… opens the panel beside the clock; switching to Digital shows `HH:mm`, typing `hh:mm:ss A` or `yyyy-MM-dd HH:mm` updates the clock live, each of the six fonts renders in its own face, the Size slider (10–100 px) resizes the readout and the window hugs it, and Style → colour swatch + "Neon glow" + "Dark backdrop" repaint it (off = transparent, floating time).
 - [ ] Minimise or hide the clock: CPU drops to ~0% in Activity Monitor; restore and it resumes on the correct second.
 - [ ] Activity Monitor: idle CPU < 1% in tick mode, RAM is a Tauri webview baseline (no growth over 10 min).
@@ -174,9 +198,17 @@ npx tauri icon src-tauri/icons/app-icon.png
 
 ## Known limitations
 
-- **The settings window is created on demand** from the tray ("Settings…"), so it is not
-  part of the clock's always-on-top stack. It opens beside the clock when there is room on
-  the monitor, otherwise centred; while it is open, clicking the clock still drags the clock.
+- **The settings window is created on demand** from the tray ("Settings…") or a clock's
+  double click, so it is not part of the clock's always-on-top stack. It opens beside the
+  clock it will edit when there is room on the monitor, otherwise centred; while it is open,
+  clicking a clock still drags that clock.
+- **Tray look items are all-or-nothing.** Display, Skin, Font and Time zone apply to every
+  clock at once; a checkmark is shown only when all clocks agree, so a mixed set reads as
+  unchecked. Per-clock styling lives in the panel's clock list.
+- **Clock labels are user-visible state.** The panel always shows at least one clock and the
+  store keeps at most `MAX_CLOCKS` (8). A hand-edited `settings.json` with empty, duplicate or
+  unsafe ids is repaired on load instead of failing to create a window, so a clock can be
+  renamed by the loader; its look and bounds are kept.
 - **Digital formats are token based, not ICU complete.** Supported: `HH H hh h mm m ss s`,
   `a A`, `EEE EEEE`, `yyyy yy`, `MMMM MMM MM M`, `dd d`. Literal text must be quoted
   (`HH:mm 'UTC'`) because token letters are matched first (`at` would render as `AMt`).

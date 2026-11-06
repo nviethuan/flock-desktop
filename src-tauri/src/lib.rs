@@ -4,8 +4,6 @@ mod win;
 
 use tauri::{Manager, RunEvent};
 
-pub const MAIN_WINDOW: &str = "main";
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -20,6 +18,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             settings::get_settings,
             settings::update_settings,
+            settings::update_clock,
+            settings::add_clock,
+            settings::remove_clock,
+            settings::time_zones,
             settings::read_skin_file,
             win::resize_clock_box,
             win::close_settings,
@@ -33,6 +35,7 @@ pub fn run() {
             app.manage(settings::SettingsState::new(loaded.clone()));
             settings::apply_autostart(&handle, loaded.launch_at_login);
 
+            // Every clock is its own window, so none of them comes from tauri.conf.json.
             win::setup(&handle, &loaded)?;
             tray::build(&handle)?;
 

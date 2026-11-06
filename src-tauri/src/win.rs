@@ -1,6 +1,5 @@
-//! Window plumbing: restore bounds, keep the analog clock square (the digital clock hugs
-//! its readout instead), persist moves/resizes, and hide instead of quitting when the
-//! clock is closed.
+//! Window plumbing: one clock window per saved clock, bounds restore/persist, the square
+//! analog face, the settings panel, and hide-instead-of-quit.
 
 use std::time::Duration;
 
@@ -10,8 +9,8 @@ use tauri::{
 };
 
 use crate::{
-    settings::{self, DisplayMode, Settings, SettingsState, VISIBILITY_CHANGED},
-    MAIN_WINDOW,
+    settings::{self, Clock, DisplayMode, Settings, SettingsState, VISIBILITY_CHANGED},
+    settings::{CLOCK_PREFIX, SETTINGS_FOCUS, SETTINGS_WINDOW},
 };
 
 pub const MIN_SIDE: u32 = 120;
@@ -27,15 +26,61 @@ pub const MAX_HEIGHT: u32 = 1200;
 const DEFAULT_WIDTH: u32 = 220;
 const DEFAULT_HEIGHT: u32 = 220;
 
+/// Offset of a freshly added clock from the previous one, in physical pixels.
+const CASCADE_OFFSET: i32 = 36;
+
 const SETTINGS_PANEL_WIDTH: f64 = 420.0;
 const SETTINGS_PANEL_HEIGHT: f64 = 600.0;
 
 const BOUNDS_PERSIST_INTERVAL: Duration = Duration::from_millis(900);
 
 pub fn setup(app: &AppHandle, settings: &Settings) -> tauri::Result<()> {
-    let Some(window) = app.get_webview_window(MAIN_WINDOW) else {
-        return Ok(());
-    };
+    for clock in &settings.clocks {
+        create_clock(app, clock, settings.always_on_top, settings.click_through)?;
+    }
+    Ok(())
+}
+
+/// Every window that shows a clock, in no particular order.
+pub fn clock_windows(app: &AppHandle) -> Vec<WebviewWindow> {
+    app.webview_windows()
+        .into_iter()
+        .filter(|(label, _)| label.starts_with(CLOCK_PREFIX))
+        .map(|(_, window)| window)
+        .collect()
+}
+
+/// Builds the frameless, transparent, always-on-top window for one clock.
+pub fn create_clock(
+    app: &AppHandle,
+    clock: &Clock,
+    always_on_top: bool,
+    click_through: bool,
+) -> tauri::Result<WebviewWindow> {
+    let (width, height) = restored_size(clock);
+    let mut builder = WebviewWindowBuilder::new(
+        app,
+        clock.id.clone(),
+        WebviewUrl::App("index.html".into()),
+    )
+    .title("Flock")
+    .inner_size(width, height)
+    .min_inner_size(MIN_WIDTH as f64, MIN_HEIGHT as f64)
+    .max_inner_size(MAX_WIDTH as f64, MAX_HEIGHT as f64)
+    .decorations(false)
+    .transparent(true)
+    .shadow(false)
+    .skip_taskbar(true)
+    .always_on_top(always_on_top)
+    .visible(false)
+    .focused(false);
+
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.accept_first_mouse(true);
+    }
+
+    let window = builder.build()?;
 
     // Windows has no per-workspace visibility API; this is a no-op there.
     #[cfg(not(target_os = "windows"))]
@@ -43,8 +88,7 @@ pub fn setup(app: &AppHandle, settings: &Settings) -> tauri::Result<()> {
         let _ = window.set_visible_on_all_workspaces(true);
     }
 
-    let _ = window.set_always_on_top(settings.always_on_top);
-    let _ = window.set_ignore_cursor_events(settings.click_through);
+    let _ = window.set_ignore_cursor_events(click_through);
 
     // Sizing belongs to Settings, so macOS drops the resizable style mask: a borderless
     // window that keeps it still grows an invisible edge-drag frame, and dragging an edge
@@ -57,18 +101,17 @@ pub fn setup(app: &AppHandle, settings: &Settings) -> tauri::Result<()> {
         let _ = window.set_resizable(false);
     }
 
-    restore_bounds(&window, settings);
+    place_window(&window, clock);
     install_handlers(&window);
-
     window.show()?;
-    Ok(())
+    Ok(window)
 }
 
-fn restore_bounds(window: &WebviewWindow, settings: &Settings) {
-    let (width, height) = restored_size(settings);
+fn place_window(window: &WebviewWindow, clock: &Clock) {
+    let (width, height) = restored_size(clock);
     let _ = window.set_size(LogicalSize::new(width, height));
 
-    if let (Some(x), Some(y)) = (settings.x, settings.y) {
+    if let (Some(x), Some(y)) = (clock.x, clock.y) {
         if is_on_screen(window, x, y) {
             let _ = window.set_position(PhysicalPosition::new(x, y));
             return;
@@ -79,12 +122,12 @@ fn restore_bounds(window: &WebviewWindow, settings: &Settings) {
     let _ = window.center();
 }
 
-/// Saved size, migrated from the old square `size` field, clamped to the mode's limits.
-fn restored_size(settings: &Settings) -> (f64, f64) {
-    let width = settings.width.or(settings.size).unwrap_or(DEFAULT_WIDTH);
-    let height = settings.height.or(settings.size).unwrap_or(DEFAULT_HEIGHT);
+/// Saved size, clamped to the mode's limits.
+fn restored_size(clock: &Clock) -> (f64, f64) {
+    let width = clock.width.unwrap_or(DEFAULT_WIDTH);
+    let height = clock.height.unwrap_or(DEFAULT_HEIGHT);
 
-    match settings.display_mode {
+    match clock.display_mode {
         DisplayMode::Analog => {
             let side = width.max(height).clamp(MIN_SIDE, MAX_SIDE) as f64;
             (side, side)
@@ -97,9 +140,23 @@ fn restored_size(settings: &Settings) -> (f64, f64) {
 }
 
 /// Re-applies the mode's shape: square for analog, left to the webview's hug for digital.
-pub fn apply_mode_size(window: &WebviewWindow, settings: &Settings) {
-    let (width, height) = restored_size(settings);
+pub fn apply_mode_size(window: &WebviewWindow, clock: &Clock) {
+    let (width, height) = restored_size(clock);
     let _ = window.set_size(LogicalSize::new(width, height));
+}
+
+/// Physical position for a new clock: a small cascade off the previous window.
+pub fn cascade_position(app: &AppHandle, previous: Option<&Clock>) -> Option<(i32, i32)> {
+    let previous = previous?;
+    let window = app.get_webview_window(&previous.id);
+    let origin = match window.and_then(|window| window.outer_position().ok()) {
+        Some(position) => (position.x, position.y),
+        None => match (previous.x, previous.y) {
+            (Some(x), Some(y)) => (x, y),
+            _ => return None,
+        },
+    };
+    Some((origin.0 + CASCADE_OFFSET, origin.1 + CASCADE_OFFSET))
 }
 
 fn is_on_screen(window: &WebviewWindow, x: i32, y: i32) -> bool {
@@ -129,10 +186,14 @@ fn install_handlers(window: &WebviewWindow) {
         }
         WindowEvent::Moved(_) => record_bounds(&target),
         WindowEvent::CloseRequested { api, .. } => {
-            // Closing the clock hides it; quit lives in the tray.
+            // Closing one clock hides it; quit lives in the tray.
             api.prevent_close();
             let _ = target.hide();
-            let _ = target.app_handle().emit(VISIBILITY_CHANGED, false);
+            let _ = target.app_handle().emit_to(
+                target.label(),
+                VISIBILITY_CHANGED,
+                false,
+            );
         }
         _ => {}
     });
@@ -140,7 +201,14 @@ fn install_handlers(window: &WebviewWindow) {
 
 /// Only the analog clock is square; the digital one is sized by the readout.
 fn is_square_mode(window: &WebviewWindow) -> bool {
-    window.app_handle().state::<SettingsState>().snapshot().display_mode == DisplayMode::Analog
+    let label = window.label().to_string();
+    window
+        .app_handle()
+        .state::<SettingsState>()
+        .snapshot()
+        .clocks
+        .iter()
+        .any(|clock| clock.id == label && clock.display_mode == DisplayMode::Analog)
 }
 
 /// Tauri v2 exposes no native aspect-ratio constraint, so the square is enforced on resize.
@@ -168,25 +236,29 @@ fn record_bounds(window: &WebviewWindow) {
 
     let width = (size.width as f64 / scale).round() as u32;
     let height = (size.height as f64 / scale).round() as u32;
+    let label = window.label().to_string();
     let app = window.app_handle();
     let state = app.state::<SettingsState>();
 
     let current = state.snapshot();
-    if current.x == Some(position.x)
-        && current.y == Some(position.y)
-        && current.width == Some(width)
-        && current.height == Some(height)
+    let Some(clock) = current.clocks.iter().find(|clock| clock.id == label) else {
+        return;
+    };
+    if clock.x == Some(position.x)
+        && clock.y == Some(position.y)
+        && clock.width == Some(width)
+        && clock.height == Some(height)
     {
         return;
     }
 
     state.edit(|settings| {
-        settings.x = Some(position.x);
-        settings.y = Some(position.y);
-        settings.width = Some(width);
-        settings.height = Some(height);
-        // The legacy field keeps the smaller side, which is the old square behaviour.
-        settings.size = Some(width.min(height));
+        if let Some(clock) = settings.clocks.iter_mut().find(|clock| clock.id == label) {
+            clock.x = Some(position.x);
+            clock.y = Some(position.y);
+            clock.width = Some(width);
+            clock.height = Some(height);
+        }
     });
 
     if state.should_persist(BOUNDS_PERSIST_INTERVAL) {
@@ -201,51 +273,74 @@ pub fn platform() -> &'static str {
     std::env::consts::OS
 }
 
-/// Command behind the clock's double click: the same panel the tray opens, so the two
-/// entry points can never drift apart.
+/// Command behind the clock's double click: the same panel the tray opens, focused on the
+/// clock that was double-clicked.
 #[tauri::command]
-pub fn show_settings(app: AppHandle) -> Result<(), String> {
-    open_settings(&app)
+pub fn show_settings(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
+    open_settings(&app, Some(window.label().to_string()))
 }
 
-/// Opens (or re-focuses) the settings window next to the clock.
+/// Clock that most recently had keyboard focus, so the tray knows which one it means.
+pub fn focused_clock(app: &AppHandle) -> Option<String> {
+    let windows = clock_windows(app);
+    let focused = windows
+        .iter()
+        .find(|window| window.is_focused().unwrap_or(false));
+    // Clicking the tray does not focus a clock; the first one is the predictable fallback.
+    let window = focused.or_else(|| windows.first());
+    window.map(|window| window.label().to_string())
+}
+
+/// Opens (or re-focuses) the settings window next to the clock it should edit.
 ///
-/// The panel is placed beside the clock so the live preview stays visible; if there is no
+/// The panel is placed beside that clock so the live preview stays visible; if there is no
 /// room on that monitor it falls back to the centred default.
-pub fn open_settings(app: &AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window(settings::SETTINGS_WINDOW) {
+pub fn open_settings(app: &AppHandle, focus_clock: Option<String>) -> Result<(), String> {
+    let target = focus_clock.or_else(|| focused_clock(app));
+
+    if let Some(window) = app.get_webview_window(SETTINGS_WINDOW) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
+        if let Some(clock) = target {
+            let _ = app.emit_to(SETTINGS_WINDOW, SETTINGS_FOCUS, clock);
+        }
         return Ok(());
     }
 
+    // The clock to edit travels in the URL, so the panel's very first render already knows
+    // it; the event above is only for a panel that is already open.
+    let address = match &target {
+        Some(clock) => format!("index.html?focus={clock}"),
+        None => "index.html".to_string(),
+    };
+
     let mut builder = WebviewWindowBuilder::new(
         app,
-        settings::SETTINGS_WINDOW,
-        WebviewUrl::App("index.html".into()),
+        SETTINGS_WINDOW,
+        WebviewUrl::App(address.into()),
     )
     .title("Flock Settings")
     .inner_size(SETTINGS_PANEL_WIDTH, SETTINGS_PANEL_HEIGHT)
     .min_inner_size(SETTINGS_PANEL_WIDTH, 480.0)
     .focused(true);
 
-    builder = match position_beside_clock(app) {
-        Some((x, y)) => builder.position(x, y),
-        None => builder.center(),
-    };
+    let placement = position_beside_clock(app, target.as_deref());
+    if let Some((x, y)) = placement {
+        builder = builder.position(x, y);
+    }
 
-    builder.build().map_err(|error| error.to_string())?;
+    let window = builder.build().map_err(|error| error.to_string())?;
+    if placement.is_none() {
+        let _ = window.center();
+    }
     Ok(())
 }
 
-/// Sizes the clock window so the digital readout is hugged instead of clipped.
+/// Sizes the calling clock window so the digital readout is hugged instead of clipped.
 /// Dimensions are logical pixels; `record_bounds` persists the result like a manual resize.
 #[tauri::command]
-pub fn resize_clock_box(app: AppHandle, width: f64, height: f64) -> Result<(), String> {
-    let Some(window) = app.get_webview_window(MAIN_WINDOW) else {
-        return Err("the clock window is not available".to_string());
-    };
+pub fn resize_clock_box(window: WebviewWindow, width: f64, height: f64) -> Result<(), String> {
     let width = width.round().clamp(MIN_WIDTH as f64, MAX_WIDTH as f64);
     let height = height.round().clamp(MIN_HEIGHT as f64, MAX_HEIGHT as f64);
     window
@@ -255,18 +350,19 @@ pub fn resize_clock_box(app: AppHandle, width: f64, height: f64) -> Result<(), S
 
 #[tauri::command]
 pub fn close_settings(app: AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window(settings::SETTINGS_WINDOW) {
+    if let Some(window) = app.get_webview_window(SETTINGS_WINDOW) {
         window.close().map_err(|error| error.to_string())?;
     }
     Ok(())
 }
 
-fn position_beside_clock(app: &AppHandle) -> Option<(f64, f64)> {
-    let clock = app.get_webview_window(MAIN_WINDOW)?;
-    let scale = clock.scale_factor().ok()?;
-    let origin = clock.outer_position().ok()?;
-    let size = clock.inner_size().ok()?;
-    let monitor = clock.current_monitor().ok().flatten()?;
+fn position_beside_clock(app: &AppHandle, clock: Option<&str>) -> Option<(f64, f64)> {
+    let label = clock?;
+    let window = app.get_webview_window(label)?;
+    let scale = window.scale_factor().ok()?;
+    let origin = window.outer_position().ok()?;
+    let size = window.inner_size().ok()?;
+    let monitor = window.current_monitor().ok().flatten()?;
 
     let x = origin.x as f64 / scale;
     let y = origin.y as f64 / scale;
@@ -297,18 +393,24 @@ fn position_beside_clock(app: &AppHandle) -> Option<(f64, f64)> {
     None
 }
 
+/// Hides every clock, or brings them all back.
 pub fn toggle_visibility(app: &AppHandle) {
-    let Some(window) = app.get_webview_window(MAIN_WINDOW) else {
+    let windows = clock_windows(app);
+    if windows.is_empty() {
         return;
-    };
-    let visible = window.is_visible().unwrap_or(true);
+    }
+    let visible = windows
+        .iter()
+        .any(|window| window.is_visible().unwrap_or(true));
 
-    if visible {
-        let _ = window.hide();
-    } else {
-        let _ = window.show();
+    for window in &windows {
+        if visible {
+            let _ = window.hide();
+        } else {
+            let _ = window.show();
+        }
+        let _ = app.emit_to(window.label(), VISIBILITY_CHANGED, !visible);
     }
 
     crate::tray::refresh(app);
-    let _ = app.emit(VISIBILITY_CHANGED, !visible);
 }

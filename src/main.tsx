@@ -10,8 +10,8 @@ function currentLabel(): string {
   try {
     return getCurrentWindow().label;
   } catch {
-    // Plain browser (e.g. `npm run dev` without Tauri): behave like the clock window.
-    return 'main';
+    // Plain browser (e.g. `npm run dev` without Tauri): behave like the first clock window.
+    return 'clock-1';
   }
 }
 

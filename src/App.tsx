@@ -1,29 +1,43 @@
 import { use, useEffect, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import Clock from './components/Clock';
 import { useSettings } from './hooks/useSettings';
 import { useWindowVisible } from './hooks/useWindowVisible';
 import { chooseSkinFile, describeError, loadSkin } from './lib/skins';
-import { settingsReady, updateSettings } from './lib/settings';
-import type { Settings } from './lib/settings';
+import { clockForLabel, settingsReady, updateClockSettings } from './lib/settings';
+import type { ClockSettings, Settings } from './lib/settings';
 
 export const PICK_SKIN_EVENT = 'skin://pick';
+
+/** A clock window's label is its clock id; a plain browser dev session shows the first one. */
+function currentLabel(): string {
+  try {
+    return getCurrentWindow().label;
+  } catch {
+    return 'clock-1';
+  }
+}
 
 export default function App() {
   // Suspends until the first snapshot arrives; the promise is module-level so it is stable.
   use(settingsReady());
   const settings = useSettings();
+  const clock = clockForLabel(settings, currentLabel());
 
-  if (!settings) return null;
-  return <ClockScreen settings={settings} />;
+  // An orphaned window (its clock was removed) has nothing to draw; it is being destroyed.
+  if (!settings || !clock) return null;
+  return <ClockScreen settings={settings} clock={clock} />;
 }
 
-function ClockScreen({ settings }: { settings: Settings }) {
-  const skin = use(loadSkin(settings.skinPath));
+function ClockScreen({ settings, clock }: { settings: Settings; clock: ClockSettings }) {
+  const skin = use(loadSkin(clock.skinPath));
   const visible = useWindowVisible();
   const [message, setMessage] = useState<string | null>(null);
+  const clockId = clock.id;
 
-  // The tray cannot open a webview-owned dialog itself, so it asks us to.
+  // The tray cannot open a webview-owned dialog itself, so it asks this window to. The
+  // event is addressed to one clock only, so the picker cannot open several times.
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
@@ -33,7 +47,7 @@ function ClockScreen({ settings }: { settings: Settings }) {
         try {
           const picked = await chooseSkinFile();
           if (!picked) return;
-          await updateSettings({ skinPath: picked.path });
+          await updateClockSettings(clockId, { skinPath: picked.path });
         } catch (error) {
           if (!disposed) setMessage(describeError(error));
         }
@@ -47,7 +61,7 @@ function ClockScreen({ settings }: { settings: Settings }) {
       disposed = true;
       unlisten?.();
     };
-  }, []);
+  }, [clockId]);
 
   // Picker errors are transient; skin validation errors stay visible while they apply.
   useEffect(() => {
@@ -62,16 +76,16 @@ function ClockScreen({ settings }: { settings: Settings }) {
     <div className="app">
       <Clock
         skin={skin}
-        displayMode={settings.displayMode}
-        digitalFormat={settings.digitalFormat}
-        font={settings.font}
-        digitalSize={settings.digitalSize}
-        digitalFit={settings.digitalFit}
-        digitalColor={settings.digitalColor}
-        digitalNeon={settings.digitalNeon}
-        digitalBackdrop={settings.digitalBackdrop}
+        displayMode={clock.displayMode}
+        digitalFormat={clock.digitalFormat}
+        font={clock.font}
+        digitalSize={clock.digitalSize}
+        digitalFit={clock.digitalFit}
+        digitalColor={clock.digitalColor}
+        digitalNeon={clock.digitalNeon}
+        digitalBackdrop={clock.digitalBackdrop}
         smooth={settings.smooth}
-        timeZone={settings.timeZone}
+        timeZone={clock.timeZone}
         paused={!visible}
         opacity={settings.opacity}
       />

@@ -1,4 +1,7 @@
 //! System tray: menu construction, checkmark syncing, and menu actions.
+//!
+//! The look submenus (display, skin, font, time zone) apply to every clock at once; the
+//! panel is where a single clock is styled. App-wide switches stay global.
 
 use tauri::{
     menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
@@ -7,8 +10,8 @@ use tauri::{
 };
 
 use crate::{
-    settings::{self, DisplayMode, SettingsPatch, SettingsState, FONTS},
-    win, MAIN_WINDOW,
+    settings::{self, ClockPatch, DisplayMode, Settings, SettingsPatch, SettingsState, FONTS, TIME_ZONES},
+    win,
 };
 
 pub const PICK_SKIN_EVENT: &str = "skin://pick";
@@ -20,34 +23,6 @@ const BUILTIN_SKINS: [(&str, &str); 5] = [
     ("builtin:dial", "Classic"),
     ("builtin:neon", "Neon"),
     ("builtin:bauhaus", "Bauhaus"),
-];
-
-/// Curated zones keep the submenu usable; `system` follows the OS setting.
-const TIME_ZONES: [(&str, &str); 24] = [
-    ("system", "System"),
-    ("UTC", "UTC"),
-    ("America/Los_Angeles", "Los Angeles"),
-    ("America/Denver", "Denver"),
-    ("America/Chicago", "Chicago"),
-    ("America/New_York", "New York"),
-    ("America/Sao_Paulo", "São Paulo"),
-    ("Europe/London", "London"),
-    ("Europe/Berlin", "Berlin"),
-    ("Europe/Paris", "Paris"),
-    ("Europe/Madrid", "Madrid"),
-    ("Europe/Warsaw", "Warsaw"),
-    ("Europe/Moscow", "Moscow"),
-    ("Africa/Cairo", "Cairo"),
-    ("Africa/Johannesburg", "Johannesburg"),
-    ("Asia/Dubai", "Dubai"),
-    ("Asia/Karachi", "Karachi"),
-    ("Asia/Kolkata", "Kolkata"),
-    ("Asia/Bangkok", "Bangkok"),
-    ("Asia/Shanghai", "Shanghai"),
-    ("Asia/Tokyo", "Tokyo"),
-    ("Asia/Seoul", "Seoul"),
-    ("Australia/Sydney", "Sydney"),
-    ("Pacific/Auckland", "Auckland"),
 ];
 
 pub struct TrayMenu {
@@ -122,7 +97,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             format!("skin:{key}"),
             label,
             true,
-            settings.skin_path == key,
+            settings.clocks.iter().all(|clock| clock.skin_path == key),
             None::<&str>,
         )?;
         skin_items.push((key.to_string(), item));
@@ -132,7 +107,10 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         "skin:custom",
         "Load custom SVG…",
         true,
-        !settings.skin_path.starts_with("builtin:"),
+        settings
+            .clocks
+            .iter()
+            .all(|clock| !clock.skin_path.starts_with("builtin:")),
         None::<&str>,
     )?;
 
@@ -146,7 +124,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             id,
             label,
             true,
-            settings.display_mode == mode,
+            settings.clocks.iter().all(|clock| clock.display_mode == mode),
             None::<&str>,
         )?;
         mode_items.push((mode, item));
@@ -159,7 +137,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             format!("font:{id}"),
             label,
             true,
-            settings.font == id,
+            settings.clocks.iter().all(|clock| clock.font == id),
             None::<&str>,
         )?;
         font_items.push((id.to_string(), item));
@@ -172,7 +150,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             format!("tz:{zone}"),
             label,
             true,
-            settings.time_zone == zone,
+            settings.clocks.iter().all(|clock| clock.time_zone == zone),
             None::<&str>,
         )?;
         zone_items.push((zone.to_string(), item));
@@ -295,6 +273,9 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
 }
 
 /// Keeps every checkmark and the show/hide label in step with the settings state.
+///
+/// A look item is checked only when *every* clock matches it, so a mixed set reads as
+/// "not applied" without inventing a third state.
 pub fn refresh(app: &AppHandle) {
     let Some(menu) = app.try_state::<TrayMenu>() else {
         return;
@@ -305,32 +286,62 @@ pub fn refresh(app: &AppHandle) {
     let _ = menu.click_through.set_checked(settings.click_through);
     let _ = menu.smooth.set_checked(settings.smooth);
     let _ = menu.autostart.set_checked(settings.launch_at_login);
-    let _ = menu
-        .custom_skin
-        .set_checked(!settings.skin_path.starts_with("builtin:"));
+    let _ = menu.custom_skin.set_checked(
+        settings
+            .clocks
+            .iter()
+            .all(|clock| !clock.skin_path.starts_with("builtin:")),
+    );
 
     for (value, item) in &menu.opacity {
         let _ = item.set_checked(settings.opacity == *value);
     }
     for (key, item) in &menu.skins {
-        let _ = item.set_checked(settings.skin_path == key.as_str());
+        let _ = item.set_checked(
+            settings
+                .clocks
+                .iter()
+                .all(|clock| clock.skin_path == key.as_str()),
+        );
     }
     for (zone, item) in &menu.zones {
-        let _ = item.set_checked(settings.time_zone == zone.as_str());
+        let _ = item.set_checked(
+            settings
+                .clocks
+                .iter()
+                .all(|clock| clock.time_zone == zone.as_str()),
+        );
     }
     for (mode, item) in &menu.modes {
-        let _ = item.set_checked(settings.display_mode == *mode);
+        let _ = item.set_checked(
+            settings
+                .clocks
+                .iter()
+                .all(|clock| clock.display_mode == *mode),
+        );
     }
     for (id, item) in &menu.fonts {
-        let _ = item.set_checked(settings.font == id.as_str());
+        let _ = item.set_checked(
+            settings
+                .clocks
+                .iter()
+                .all(|clock| clock.font == id.as_str()),
+        );
     }
 
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
-        let visible = window.is_visible().unwrap_or(true);
-        let _ = menu
-            .toggle_visibility
-            .set_text(if visible { "Hide clock" } else { "Show clock" });
-    }
+    let visible = win::clock_windows(app)
+        .iter()
+        .any(|window| window.is_visible().unwrap_or(true));
+    let noun = if settings.clocks.len() > 1 {
+        "clocks"
+    } else {
+        "clock"
+    };
+    let _ = menu.toggle_visibility.set_text(if visible {
+        format!("Hide {noun}")
+    } else {
+        format!("Show {noun}")
+    });
 }
 
 fn handle_menu_event(app: &AppHandle, id: &str) {
@@ -343,10 +354,13 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
         "window:click-through" => settings::toggle_click_through(app),
         "skin:custom" => {
             // The webview owns the file dialog so the chosen path can be validated first.
-            let _ = app.emit(PICK_SKIN_EVENT, ());
+            // Only the clock that has focus is asked, so a dialog cannot open per window.
+            if let Some(clock) = win::focused_clock(app) {
+                let _ = app.emit_to(clock, PICK_SKIN_EVENT, ());
+            }
         }
         "settings:open" => {
-            if let Err(error) = win::open_settings(app) {
+            if let Err(error) = win::open_settings(app, None) {
                 eprintln!("flock: could not open settings: {error}");
             }
         }
@@ -392,19 +406,19 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
                     );
                 }
             } else if let Some(key) = other.strip_prefix("skin:") {
-                settings::apply_patch(
+                settings::apply_clock_patch_all(
                     app,
-                    SettingsPatch {
+                    ClockPatch {
                         skin_path: Some(key.to_string()),
-                        ..SettingsPatch::default()
+                        ..ClockPatch::default()
                     },
                 );
             } else if let Some(zone) = other.strip_prefix("tz:") {
-                settings::apply_patch(
+                settings::apply_clock_patch_all(
                     app,
-                    SettingsPatch {
+                    ClockPatch {
                         time_zone: Some(zone.to_string()),
-                        ..SettingsPatch::default()
+                        ..ClockPatch::default()
                     },
                 );
             } else if let Some(mode) = other.strip_prefix("mode:") {
@@ -412,19 +426,19 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
                     "digital" => DisplayMode::Digital,
                     _ => DisplayMode::Analog,
                 };
-                settings::apply_patch(
+                settings::apply_clock_patch_all(
                     app,
-                    SettingsPatch {
+                    ClockPatch {
                         display_mode: Some(display_mode),
-                        ..SettingsPatch::default()
+                        ..ClockPatch::default()
                     },
                 );
             } else if let Some(id) = other.strip_prefix("font:") {
-                settings::apply_patch(
+                settings::apply_clock_patch_all(
                     app,
-                    SettingsPatch {
+                    ClockPatch {
                         font: Some(id.to_string()),
-                        ..SettingsPatch::default()
+                        ..ClockPatch::default()
                     },
                 );
             }
@@ -432,7 +446,7 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
     }
 }
 
-fn current(app: &AppHandle) -> crate::settings::Settings {
+fn current(app: &AppHandle) -> Settings {
     app.state::<SettingsState>().snapshot()
 }
 

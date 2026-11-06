@@ -1,5 +1,6 @@
 import { use, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { useSettings } from './hooks/useSettings';
 import { DIGITAL_COLORS, digitalColorLabel, digitalTextStyle } from './lib/colors';
 import { FONTS, fontStack } from './lib/fonts';
@@ -9,101 +10,239 @@ import {
   ANALOG_SIZE_MIN,
   DIGITAL_SIZE_MAX,
   DIGITAL_SIZE_MIN,
+  MAX_CLOCKS,
+  addClock,
+  clockById,
+  removeClock,
   settingsReady,
-  updateSettings,
+  timeZones,
+  updateClockSettings,
 } from './lib/settings';
-import type { Settings } from './lib/settings';
+import type { ClockSettings, Settings, TimeZone } from './lib/settings';
 import { BUILTIN_SKINS, chooseSkinFile, describeError, loadSkin } from './lib/skins';
+
+/** Sent by Rust when the panel is already open and another clock asks for it. */
+export const FOCUS_EVENT = 'settings://focus-clock';
 
 export default function SettingsApp() {
   use(settingsReady());
   const settings = useSettings();
+  const [selectedId, setSelectedId] = useState<string | null>(focusedClockFromUrl);
+
+  // A double click on a clock asks this panel to switch to that clock.
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
+    void listen<string>(FOCUS_EVENT, (event) => setSelectedId(event.payload)).then((unlistenFn) => {
+      if (disposed) unlistenFn();
+      else unlisten = unlistenFn;
+    });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
 
   if (!settings) return null;
-  return <SettingsForm settings={settings} />;
+  // A selected clock can disappear: fall back to the first one, never to an empty panel.
+  const clock = clockById(settings, selectedId) ?? settings.clocks[0] ?? null;
+  if (!clock) return null;
+
+  return <SettingsForm settings={settings} clock={clock} onSelect={setSelectedId} />;
+}
+
+/** The clock to edit when the panel is opened for a specific window (see `win.rs`). */
+function focusedClockFromUrl(): string | null {
+  try {
+    return new URLSearchParams(window.location.search).get('focus');
+  } catch {
+    return null;
+  }
 }
 
 /** The preview panel is smaller than the clock: show the size in proportion, not to scale. */
 const PREVIEW_SCALE = 26 / 44;
 
 /** The analog face is square, so its side is the window side the face scales into. */
-function analogSide(settings: Settings): number {
-  const side = settings.width ?? settings.height ?? 220;
+function analogSide(clock: ClockSettings): number {
+  const side = clock.width ?? clock.height ?? 220;
   return Math.min(ANALOG_SIZE_MAX, Math.max(ANALOG_SIZE_MIN, side));
 }
 
-function SettingsForm({ settings }: { settings: Settings }) {
-  const [format, setFormat] = useState(settings.digitalFormat);
-  const [size, setSize] = useState(settings.digitalSize);
-  const [side, setSide] = useState(analogSide(settings));
+function fileName(path: string): string {
+  return path.split(/[/\\]/).pop() ?? path;
+}
+
+/** One-line description shown in the clock list. */
+function clockSummary(clock: ClockSettings, zones: readonly TimeZone[]): string {
+  const zone = zones.find(([name]) => name === clock.timeZone)?.[1] ?? clock.timeZone;
+  const look =
+    clock.displayMode === 'analog'
+      ? (BUILTIN_SKINS.find((skin) => skin.key === clock.skinPath)?.label ?? fileName(clock.skinPath))
+      : clock.digitalFormat.trim() || DEFAULT_FORMAT;
+  return `${clock.displayMode === 'analog' ? 'Analog' : 'Digital'} · ${look} · ${zone}`;
+}
+
+interface SettingsFormProps {
+  settings: Settings;
+  clock: ClockSettings;
+  onSelect: (clockId: string) => void;
+}
+
+function SettingsForm({ settings, clock, onSelect }: SettingsFormProps) {
+  const zones = use(timeZones());
+  const [format, setFormat] = useState(clock.digitalFormat);
+  const [size, setSize] = useState(clock.digitalSize);
+  const [side, setSide] = useState(analogSide(clock));
   const [skinError, setSkinError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  // Keep the controls in step when the value changes elsewhere (tray, another window).
+  const index = settings.clocks.findIndex((entry) => entry.id === clock.id);
+
+  // Keep the controls in step when the value changes elsewhere (tray, another clock, drag).
   useEffect(() => {
-    setFormat(settings.digitalFormat);
-  }, [settings.digitalFormat]);
+    setFormat(clock.digitalFormat);
+  }, [clock.id, clock.digitalFormat]);
 
   useEffect(() => {
-    setSize(settings.digitalSize);
-  }, [settings.digitalSize]);
+    setSize(clock.digitalSize);
+  }, [clock.id, clock.digitalSize]);
 
   useEffect(() => {
-    setSide(analogSide(settings));
-  }, [settings.width, settings.height]);
+    setSide(analogSide(clock));
+  }, [clock.id, clock.width, clock.height]);
 
   // Typing is local, writes are debounced so a half-typed token never fights the store.
   useEffect(() => {
-    if (format === settings.digitalFormat) return;
+    if (format === clock.digitalFormat) return;
     const timer = window.setTimeout(() => {
-      void updateSettings({ digitalFormat: format });
+      void updateClockSettings(clock.id, { digitalFormat: format });
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [format, settings.digitalFormat]);
+  }, [format, clock.id, clock.digitalFormat]);
 
   // Dragging the slider fires a lot of input events: same debounce, so the tray does not
   // rebuild its menu on every pixel.
   useEffect(() => {
-    if (size === settings.digitalSize) return;
+    if (size === clock.digitalSize) return;
     const timer = window.setTimeout(() => {
-      void updateSettings({ digitalSize: size });
+      void updateClockSettings(clock.id, { digitalSize: size });
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [size, settings.digitalSize]);
+  }, [size, clock.id, clock.digitalSize]);
 
   // The analog side is written as a square: the window keeps its aspect in this mode.
+  // Depend on the values rather than the clock object, or every broadcast restarts the
+  // debounce and a slider drag never lands.
   useEffect(() => {
-    if (side === analogSide(settings)) return;
+    if (side === analogSide(clock)) return;
     const timer = window.setTimeout(() => {
-      void updateSettings({ width: side, height: side });
+      void updateClockSettings(clock.id, { width: side, height: side });
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [side, settings]);
+  }, [side, clock.id, clock.width, clock.height]);
 
   // The tray cannot open a dialog, so the settings window owns the custom-skin picker.
   const pickSkin = async (): Promise<void> => {
     try {
       setSkinError(null);
       const picked = await chooseSkinFile();
-      if (picked) await updateSettings({ skinPath: picked.path });
+      if (picked) await updateClockSettings(clock.id, { skinPath: picked.path });
     } catch (error) {
       setSkinError(describeError(error));
     }
   };
 
-  const isDigital = settings.displayMode === 'digital';
-  const customSkin = settings.skinPath.startsWith('builtin:')
-    ? null
-    : (settings.skinPath.split(/[/\\]/).pop() ?? settings.skinPath);
+  const addAnother = async (): Promise<void> => {
+    try {
+      setNotice(null);
+      const next = await addClock();
+      const created = next.clocks[next.clocks.length - 1];
+      if (created) onSelect(created.id);
+    } catch (error) {
+      setNotice(describeError(error));
+    }
+  };
+
+  const removeThis = async (clockId: string): Promise<void> => {
+    try {
+      setNotice(null);
+      const next = await removeClock(clockId);
+      if (!next.clocks.some((entry) => entry.id === clock.id)) onSelect(next.clocks[0]?.id ?? '');
+    } catch (error) {
+      setNotice(describeError(error));
+    }
+  };
+
+  const isDigital = clock.displayMode === 'digital';
+  const customSkin = clock.skinPath.startsWith('builtin:') ? null : fileName(clock.skinPath);
   const empty = format.trim().length === 0;
   const tooLong = format.length > 64;
-  const preview = previewFormat(settings.timeZone, format);
+  const preview = previewFormat(clock.timeZone, format);
 
   return (
     <div className="settings">
       <header className="settings__header">
         <h1>Flock</h1>
-        <p>Pick how the clock looks. Changes apply immediately.</p>
+        <p>
+          {settings.clocks.length > 1
+            ? `Editing clock ${index + 1} of ${settings.clocks.length}. Changes apply immediately.`
+            : 'Pick how the clock looks. Changes apply immediately.'}
+        </p>
       </header>
+
+      <section className="settings__section">
+        <h2>Clocks</h2>
+        <div className="clocks" role="list">
+          {settings.clocks.map((entry, position) => (
+            <div className="clocks__row" role="listitem" key={entry.id}>
+              <button
+                type="button"
+                className="clocks__pick"
+                aria-pressed={entry.id === clock.id}
+                onClick={() => onSelect(entry.id)}
+              >
+                <span className="clocks__name">Clock {position + 1}</span>
+                <span className="clocks__detail">{clockSummary(entry, zones)}</span>
+              </button>
+              <button
+                type="button"
+                className="clocks__remove"
+                aria-label={`Remove clock ${position + 1}`}
+                title={
+                  settings.clocks.length > 1
+                    ? `Remove clock ${position + 1}`
+                    : 'Flock keeps at least one clock'
+                }
+                disabled={settings.clocks.length <= 1}
+                onClick={() => void removeThis(entry.id)}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+        <button
+          type="button"
+          className="clocks__add"
+          disabled={settings.clocks.length >= MAX_CLOCKS}
+          onClick={() => void addAnother()}
+        >
+          + Add clock
+        </button>
+        <p className="settings__hint">
+          Every clock is its own always-on-top window with its own style, time zone and size, so
+          you can mix an analog face with a digital readout on the same desktop. Double-click a
+          clock to edit it here; drag it to move it.
+        </p>
+        {notice ? (
+          <p className="settings__warning" role="status">
+            {notice}
+          </p>
+        ) : null}
+      </section>
 
       <section className="settings__section">
         <h2>Display</h2>
@@ -111,14 +250,14 @@ function SettingsForm({ settings }: { settings: Settings }) {
           <button
             type="button"
             aria-pressed={!isDigital}
-            onClick={() => void updateSettings({ displayMode: 'analog' })}
+            onClick={() => void updateClockSettings(clock.id, { displayMode: 'analog' })}
           >
             Analog
           </button>
           <button
             type="button"
             aria-pressed={isDigital}
-            onClick={() => void updateSettings({ displayMode: 'digital' })}
+            onClick={() => void updateClockSettings(clock.id, { displayMode: 'digital' })}
           >
             Digital
           </button>
@@ -135,8 +274,8 @@ function SettingsForm({ settings }: { settings: Settings }) {
                   key={entry.key}
                   type="button"
                   className="skins__option"
-                  aria-pressed={settings.skinPath === entry.key}
-                  onClick={() => void updateSettings({ skinPath: entry.key })}
+                  aria-pressed={clock.skinPath === entry.key}
+                  onClick={() => void updateClockSettings(clock.id, { skinPath: entry.key })}
                 >
                   <SkinThumb markupKey={entry.key} />
                   <span className="skins__label">{entry.label}</span>
@@ -158,7 +297,7 @@ function SettingsForm({ settings }: { settings: Settings }) {
               Skins are SVG files that draw the time with hands (#hour-hand, #minute-hand,
               #second-hand) or with progress rings (#second-ring, #minute-ring, #hour-ring). They
               are sanitized before they are shown: no scripts, no remote images. The tray menu
-              offers the same list.
+              applies a skin to every clock at once.
             </p>
           </section>
           <section className="settings__section">
@@ -176,8 +315,8 @@ function SettingsForm({ settings }: { settings: Settings }) {
               <output className="settings__rangeValue">{side}px</output>
             </div>
             <p className="settings__hint">
-              The face is square, so this is the window side and the skin scales to fill it. The skin
-              itself comes from the tray menu.
+              The face is square, so this is the window side and the skin scales to fill it. Only
+              this clock changes.
             </p>
           </section>
         </>
@@ -199,17 +338,19 @@ function SettingsForm({ settings }: { settings: Settings }) {
             />
             {empty || tooLong ? (
               <p className="settings__warning">
-                {empty ? `Empty formats fall back to ${DEFAULT_FORMAT}.` : 'Formats are limited to 64 characters.'}
+                {empty
+                  ? `Empty formats fall back to ${DEFAULT_FORMAT}.`
+                  : 'Formats are limited to 64 characters.'}
               </p>
             ) : null}
 
             <p
               className="settings__preview"
               style={{
-                fontFamily: fontStack(settings.font),
+                fontFamily: fontStack(clock.font),
                 fontSize: `${Math.round(size * PREVIEW_SCALE)}px`,
-                background: settings.digitalBackdrop ? undefined : 'transparent',
-                ...digitalTextStyle(settings.digitalColor, settings.digitalNeon),
+                background: clock.digitalBackdrop ? undefined : 'transparent',
+                ...digitalTextStyle(clock.digitalColor, clock.digitalNeon),
               }}
             >
               {preview}
@@ -234,7 +375,9 @@ function SettingsForm({ settings }: { settings: Settings }) {
                 ))}
               </dl>
               <p className="settings__hint">
-                {"Wrap literal text in single quotes, e.g. HH:mm 'UTC'. Type \\n to start a new line, e.g. HH:mm\\nEEE."}
+                {
+                  "Wrap literal text in single quotes, e.g. HH:mm 'UTC'. Type \\n to start a new line, e.g. HH:mm\\nEEE."
+                }
               </p>
             </details>
           </section>
@@ -247,8 +390,8 @@ function SettingsForm({ settings }: { settings: Settings }) {
                   key={font.id}
                   type="button"
                   className="fonts__option"
-                  aria-pressed={settings.font === font.id}
-                  onClick={() => void updateSettings({ font: font.id })}
+                  aria-pressed={clock.font === font.id}
+                  onClick={() => void updateClockSettings(clock.id, { font: font.id })}
                 >
                   <span className="fonts__sample" style={{ fontFamily: font.stack }}>
                     12:34
@@ -277,16 +420,18 @@ function SettingsForm({ settings }: { settings: Settings }) {
               <label className="settings__toggle">
                 <input
                   type="checkbox"
-                  checked={settings.digitalFit}
-                  onChange={(event) => void updateSettings({ digitalFit: event.target.checked })}
+                  checked={clock.digitalFit}
+                  onChange={(event) =>
+                    void updateClockSettings(clock.id, { digitalFit: event.target.checked })
+                  }
                 />
                 Fit to window
               </label>
             </div>
             <p className="settings__hint">
-              44 px is the default and 100 px is the maximum. The clock window hugs the readout at
-              this exact size. Fit to window only kicks in when you drag the clock smaller than the
-              text: it wraps and shrinks the readout instead of clipping it.
+              44 px is the default and 100 px is the maximum. This clock's window hugs its readout
+              at that exact size. Fit to window only kicks in when you drag the clock smaller than
+              the text: it wraps and shrinks the readout instead of clipping it.
             </p>
           </section>
 
@@ -299,10 +444,10 @@ function SettingsForm({ settings }: { settings: Settings }) {
                   type="button"
                   className="swatches__option"
                   style={{ background: color.value }}
-                  aria-pressed={settings.digitalColor === color.value}
+                  aria-pressed={clock.digitalColor === color.value}
                   aria-label={color.label}
                   title={color.label}
-                  onClick={() => void updateSettings({ digitalColor: color.value })}
+                  onClick={() => void updateClockSettings(clock.id, { digitalColor: color.value })}
                 />
               ))}
             </div>
@@ -310,30 +455,58 @@ function SettingsForm({ settings }: { settings: Settings }) {
               <label className="settings__toggle">
                 <input
                   type="checkbox"
-                  checked={settings.digitalNeon}
-                  onChange={(event) => void updateSettings({ digitalNeon: event.target.checked })}
+                  checked={clock.digitalNeon}
+                  onChange={(event) =>
+                    void updateClockSettings(clock.id, { digitalNeon: event.target.checked })
+                  }
                 />
                 Neon glow
               </label>
               <label className="settings__toggle">
                 <input
                   type="checkbox"
-                  checked={settings.digitalBackdrop}
-                  onChange={(event) => void updateSettings({ digitalBackdrop: event.target.checked })}
+                  checked={clock.digitalBackdrop}
+                  onChange={(event) =>
+                    void updateClockSettings(clock.id, { digitalBackdrop: event.target.checked })
+                  }
                 />
                 Dark backdrop
               </label>
             </div>
             <p className="settings__hint">
-              {digitalColorLabel(settings.digitalColor)}. Turn the backdrop off to float the time on your
-              desktop; the neon glow makes it readable over most wallpapers.
+              {digitalColorLabel(clock.digitalColor)}. Turn the backdrop off to float the time on
+              your desktop; the neon glow makes it readable over most wallpapers.
             </p>
           </section>
         </>
       ) : null}
 
+      <section className="settings__section">
+        <h2>Time zone</h2>
+        <select
+          className="settings__input settings__select"
+          value={clock.timeZone}
+          aria-label="Clock time zone"
+          onChange={(event) => void updateClockSettings(clock.id, { timeZone: event.target.value })}
+        >
+          {zones.map(([zone, label]) => (
+            <option key={zone} value={zone}>
+              {label}
+            </option>
+          ))}
+        </select>
+        <p className="settings__hint">
+          Each clock reads its own zone, so two windows can show two cities. The list is shared
+          with the tray submenu.
+        </p>
+      </section>
+
       <footer className="settings__footer">
-        <button type="button" className="settings__close" onClick={() => void invoke('close_settings')}>
+        <button
+          type="button"
+          className="settings__close"
+          onClick={() => void invoke('close_settings')}
+        >
           Close
         </button>
       </footer>

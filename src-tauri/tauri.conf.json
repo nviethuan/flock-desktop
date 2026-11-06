@@ -11,29 +11,7 @@
   },
   "app": {
     "macOSPrivateApi": true,
-    "windows": [
-      {
-        "label": "main",
-        "title": "Flock",
-        "width": 220,
-        "height": 220,
-        "minWidth": 120,
-        "minHeight": 64,
-        "maxWidth": 1600,
-        "maxHeight": 1200,
-        "resizable": true,
-        "decorations": false,
-        "transparent": true,
-        "alwaysOnTop": true,
-        "visibleOnAllWorkspaces": true,
-        "skipTaskbar": true,
-        "shadow": false,
-        "center": true,
-        "visible": false,
-        "focus": false,
-        "acceptFirstMouse": true
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost"
     }
