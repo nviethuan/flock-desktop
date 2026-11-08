@@ -1,4 +1,5 @@
 mod settings;
+mod sound;
 mod tray;
 mod win;
 
@@ -23,6 +24,8 @@ pub fn run() {
             settings::remove_clock,
             settings::time_zones,
             settings::read_skin_file,
+            sound::alert_sounds,
+            sound::play_alert_sound,
             win::resize_clock_box,
             win::close_settings,
             win::show_settings,
@@ -34,6 +37,8 @@ pub fn run() {
             let loaded = settings::load(&handle);
 
             app.manage(settings::SettingsState::new(loaded.clone()));
+            // A countdown that is still running after a relaunch keeps its alarm.
+            settings::arm_alerts(&handle, &loaded);
             settings::apply_autostart(&handle, loaded.launch_at_login);
             // Before the first window exists, so the Dock icon never flashes on launch.
             win::apply_dock_visibility(&handle, loaded.hide_dock_icon);

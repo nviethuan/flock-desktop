@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import type { RefObject } from 'react';
 import { formatDigital } from '../lib/format';
 import { handAngles, wallClock } from '../lib/time';
-import type { CountdownDisplay, DisplayMode } from '../lib/settings';
+import type { CountdownAnimation, CountdownDisplay, DisplayMode } from '../lib/settings';
 
 interface ClockLoopOptions {
   mode: DisplayMode;
@@ -14,6 +14,8 @@ interface ClockLoopOptions {
   countdownDisplay: CountdownDisplay;
   countdownRemainingSeconds: number;
   countdownEndsAt: number;
+  countdownAnimation: CountdownAnimation;
+  countdownAnimationLastSeconds: number;
   /** Typeface id, so a font swap re-measures the readout. */
   digitalFont: string;
   /** Requested type size in CSS pixels, see `fitDigital`. */
@@ -49,6 +51,8 @@ export function useClockLoop({
   countdownDisplay,
   countdownRemainingSeconds,
   countdownEndsAt,
+  countdownAnimation,
+  countdownAnimationLastSeconds,
   digitalFont,
   digitalSize,
   digitalFit,
@@ -83,6 +87,8 @@ export function useClockLoop({
           countdownDisplay,
           countdownRemainingSeconds,
           countdownEndsAt,
+          countdownAnimation,
+          countdownAnimationLastSeconds,
           digitalSize,
           digitalFit,
           onRequestBox,
@@ -137,6 +143,9 @@ export function useClockLoop({
       if (frame) cancelAnimationFrame(frame);
       if (alignment) window.clearTimeout(alignment);
       if (interval) window.clearInterval(interval);
+      if (mode === 'countdown') {
+        digitalRef.current?.classList.remove('animate__animated', 'animate__jello', 'animate__rubberBand');
+      }
     };
   }, [
     mode,
@@ -146,6 +155,8 @@ export function useClockLoop({
     countdownDisplay,
     countdownRemainingSeconds,
     countdownEndsAt,
+    countdownAnimation,
+    countdownAnimationLastSeconds,
     digitalFont,
     digitalSize,
     digitalFit,
@@ -288,20 +299,35 @@ function createCountdownPainter(
   display: CountdownDisplay,
   remainingSeconds: number,
   endsAt: number,
+  animation: CountdownAnimation,
+  animationLastSeconds: number,
   size: number,
   shrink: boolean,
   onRequestBox: ((box: WindowBox, hug: boolean) => void) | undefined,
 ): () => void {
-  let lastText = '';
+  let lastText = element.textContent ?? '';
   let lastViewport = '';
   return () => {
-    const left = endsAt > 0 ? Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)) : remainingSeconds;
+    const now = Date.now();
+    const running = endsAt > now;
+    const left = running ? Math.max(0, Math.ceil((endsAt - now) / 1000)) : endsAt > 0 ? 0 : remainingSeconds;
     const text = display === 'seconds' ? String(left) : formatCountdown(left);
     const viewport = `${window.innerWidth}x${window.innerHeight}`;
-    if (text === lastText && viewport === lastViewport) return;
-    lastText = text;
+    const textChanged = text !== lastText;
+    if (!textChanged && viewport === lastViewport) return;
+    if (textChanged) {
+      if (lastText && running && left > 0 && left <= animationLastSeconds && animation) {
+        element.classList.remove('animate__animated', 'animate__jello', 'animate__rubberBand');
+        void element.offsetWidth;
+        element.classList.add('animate__animated', animation);
+      }
+      lastText = text;
+    }
     lastViewport = viewport;
     if (element.textContent !== text) element.textContent = text;
+    if (left === 0) {
+      element.classList.remove('animate__animated', 'animate__jello', 'animate__rubberBand');
+    }
     const requested = Math.max(MIN_DIGITAL_SIZE, Math.min(MAX_RENDERED_SIZE, size));
     if (shrink) {
       fitDigital(element, requested);

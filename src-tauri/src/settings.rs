@@ -20,7 +20,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_autostart::ManagerExt as AutostartExt;
 use tauri_plugin_store::StoreExt;
 
-use crate::{tray, win};
+use crate::{sound, tray, win};
 
 pub const STORE_FILE: &str = "settings.json";
 const STORE_KEY: &str = "settings";
@@ -153,6 +153,16 @@ pub struct Clock {
     pub countdown_ends_at: u64,
     /// Whether the countdown shows HH:MM:SS or total seconds.
     pub countdown_display: CountdownDisplay,
+    /// Optional CSS animation to play on each countdown tick.
+    pub countdown_animation: String,
+    /// Limit animation to this many seconds at the end (1-60).
+    pub countdown_animation_last_seconds: u32,
+    /// Plays an alert sound when the countdown reaches zero.
+    pub countdown_alert: bool,
+    /// Id from `alert_sounds()`; empty means the OS default sound.
+    pub countdown_alert_sound: String,
+    /// Play the selected alert sound at each tick in the last N seconds (0 disables, max 15).
+    pub countdown_alert_tick_seconds: u32,
 }
 
 impl Default for Clock {
@@ -177,6 +187,11 @@ impl Default for Clock {
             countdown_remaining_seconds: 300,
             countdown_ends_at: 0,
             countdown_display: CountdownDisplay::Hhmmss,
+            countdown_animation: String::new(),
+            countdown_animation_last_seconds: 10,
+            countdown_alert: false,
+            countdown_alert_sound: String::new(),
+            countdown_alert_tick_seconds: 0,
         }
     }
 }
@@ -282,6 +297,11 @@ pub struct ClockPatch {
     pub countdown_remaining_seconds: Option<u32>,
     pub countdown_ends_at: Option<u64>,
     pub countdown_display: Option<CountdownDisplay>,
+    pub countdown_animation: Option<String>,
+    pub countdown_animation_last_seconds: Option<u32>,
+    pub countdown_alert: Option<bool>,
+    pub countdown_alert_sound: Option<String>,
+    pub countdown_alert_tick_seconds: Option<u32>,
 }
 
 impl ClockPatch {
@@ -333,6 +353,21 @@ impl ClockPatch {
         }
         if let Some(value) = self.countdown_display {
             clock.countdown_display = value;
+        }
+        if let Some(value) = self.countdown_animation {
+            clock.countdown_animation = value;
+        }
+        if let Some(value) = self.countdown_animation_last_seconds {
+            clock.countdown_animation_last_seconds = value;
+        }
+        if let Some(value) = self.countdown_alert {
+            clock.countdown_alert = value;
+        }
+        if let Some(value) = self.countdown_alert_sound {
+            clock.countdown_alert_sound = value;
+        }
+        if let Some(value) = self.countdown_alert_tick_seconds {
+            clock.countdown_alert_tick_seconds = value;
         }
     }
 }
@@ -468,6 +503,18 @@ fn normalize_clock(clock: &mut Clock) {
     if clock.countdown_ends_at > 0 && clock.countdown_remaining_seconds == 0 {
         clock.countdown_ends_at = 0;
     }
+    if !matches!(
+        clock.countdown_animation.as_str(),
+        "" | "animate__jello" | "animate__rubberBand"
+    ) {
+        clock.countdown_animation.clear();
+    }
+    clock.countdown_animation_last_seconds = clock.countdown_animation_last_seconds.clamp(1, 60);
+    clock.countdown_alert_sound = clock.countdown_alert_sound.trim().to_string();
+    if clock.countdown_alert_sound.chars().count() > 512 {
+        clock.countdown_alert_sound.clear();
+    }
+    clock.countdown_alert_tick_seconds = clock.countdown_alert_tick_seconds.min(15);
     clock.digital_color = clock.digital_color.trim().to_ascii_lowercase();
     if !is_hex_color(&clock.digital_color) {
         clock.digital_color = DEFAULT_DIGITAL_COLOR.to_string();
@@ -563,8 +610,21 @@ pub fn persist_now(app: &AppHandle) {
 }
 
 fn broadcast(app: &AppHandle, settings: &Settings) {
+    arm_alerts(app, settings);
     tray::refresh(app);
     let _ = app.emit(SETTINGS_CHANGED, settings);
+}
+
+/// (Re)arms the countdown alarms of a snapshot; idempotent, so broadcasting is cheap.
+pub fn arm_alerts(app: &AppHandle, settings: &Settings) {
+    for clock in &settings.clocks {
+        sound::arm(
+            app,
+            &clock.id,
+            clock.countdown_ends_at,
+            clock.countdown_alert,
+        );
+    }
 }
 
 /// Applies an app-wide patch, mirrors it onto every clock window, persists and broadcasts.

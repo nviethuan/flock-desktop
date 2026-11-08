@@ -6,6 +6,7 @@ export type Opacity = (typeof OPACITY_STEPS)[number];
 
 export type DisplayMode = 'analog' | 'digital' | 'countdown';
 export type CountdownDisplay = 'hhmmss' | 'seconds';
+export type CountdownAnimation = '' | 'animate__jello' | 'animate__rubberBand';
 
 /** Kept in step with `MIN_DIGITAL_SIZE`/`MAX_DIGITAL_SIZE` in `src-tauri/src/settings.rs`. */
 export const DIGITAL_SIZE_MIN = 10;
@@ -52,6 +53,16 @@ export interface ClockSettings {
   countdownEndsAt: number;
   /** Countdown readout style: padded clock or total seconds. */
   countdownDisplay: CountdownDisplay;
+  /** Optional animation played when countdown digits change. */
+  countdownAnimation: CountdownAnimation;
+  /** Animate only when this many seconds or fewer remain (1-60). */
+  countdownAnimationLastSeconds: number;
+  /** Play an OS alert sound when the countdown reaches zero. */
+  countdownAlert: boolean;
+  /** Id from `alertSounds()` in `lib/sounds.ts`; empty means the OS default. */
+  countdownAlertSound: string;
+  /** Play the selected sound at each tick in the last N seconds (0 disables, max 15). */
+  countdownAlertTickSeconds: number;
 }
 
 /**

@@ -5,7 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { beginWindowDrag } from '../lib/drag';
 import { useClockLoop } from '../hooks/useClockLoop';
 import { fontStack } from '../lib/fonts';
-import type { CountdownDisplay, DisplayMode } from '../lib/settings';
+import type { CountdownAnimation, CountdownDisplay, DisplayMode } from '../lib/settings';
 import type { Skin } from '../lib/skins';
 
 /** Share of the type size kept free around the readout so the glow is not clipped. */
@@ -25,6 +25,8 @@ export interface ClockProps {
   countdownDisplay: CountdownDisplay;
   countdownRemainingSeconds: number;
   countdownEndsAt: number;
+  countdownAnimation: CountdownAnimation;
+  countdownAnimationLastSeconds: number;
   font: string;
   digitalSize: number;
   digitalFit: boolean;
@@ -45,6 +47,8 @@ export default function Clock({
   countdownDisplay,
   countdownRemainingSeconds,
   countdownEndsAt,
+  countdownAnimation,
+  countdownAnimationLastSeconds,
   font,
   digitalSize,
   digitalFit,
@@ -67,6 +71,8 @@ export default function Clock({
     countdownDisplay,
     countdownRemainingSeconds,
     countdownEndsAt,
+    countdownAnimation,
+    countdownAnimationLastSeconds,
     digitalFont: font,
     digitalSize,
     digitalFit,

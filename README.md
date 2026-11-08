@@ -162,7 +162,10 @@ npx tauri icon src-tauri/icons/app-icon.png
 - **Digital readout and countdown share the same text renderer** and per-clock font, size,
   fit, colour, glow and backdrop settings. Digital mode formats wall time from `digitalFormat`;
   countdown mode uses a saved duration, remaining value and absolute expiry timestamp, so it
-  continues accurately across app restarts. Start, Pause and Reset are in Settings, and the
+  continues accurately across app restarts. The Countdown panel picks one of two start modes —
+  "Run for a duration" (h/m/s) or "Run until a time" (`datetime-local`) — and only the chosen
+  input is shown, so Start always has a single meaning; a paused countdown gets its own Resume
+  button. Start, Pause and Reset are in Settings, and the
   display can be `HH:MM:SS` or total seconds. Both are painted with `textContent` once a second
   instead of re-rendering React. Colour and neon glow are inline styles (`lib/colors.ts`), which
   the loop never touches. The settings window is a second webview (`label: "settings"`) that
@@ -177,7 +180,7 @@ npx tauri icon src-tauri/icons/app-icon.png
 - [ ] No Dock icon and no Cmd-Tab entry by default; tray → "Hide Dock icon" unchecked brings both back without a restart, and the clock keeps ticking through the switch.
 - [ ] Double click the clock: the Settings panel opens beside it, in both analog and digital mode, and selects that clock in the list.
 - [ ] Settings → Clocks → "Add clock" opens a second window with the same look, offset a little; switching it to Digital, Countdown, another skin, another time zone or another size changes only that clock, "×" removes it (disabled while a single clock is left), and both clocks come back with their own look, position and size after quit + relaunch.
-- [ ] Settings → Display → Countdown accepts a duration from 1 second to 99:59:59, starts/pauses/resets it, continues across relaunch, and switches between `HH:MM:SS` and total seconds.
+- [ ] Settings → Display → Countdown accepts a duration from 1 second to 99:59:59, starts/pauses/resets it, switches between "Run for a duration" (only the h/m/s fields show) and "Run until a time" (only the end date/time shows, and Start counts down to exactly that moment), offers Resume after Pause, continues across relaunch, switches between `HH:MM:SS` and total seconds, can animate each tick with no effect, `animate__jello` or `animate__rubberBand` during the last N seconds (default 10, max 60), and can sound an OS alert tone when it reaches zero (system default or any tone in the OS sound library, still audible while the clocks are hidden) and repeat that tone every second over the last 0–15 seconds (0 = off).
 - [ ] Drag anywhere on the clock to move it; dragging an edge must not resize it. In analog mode the window stays square (Size slider) and the face scales to fill it; position/size survive quit + relaunch.
 - [ ] `Cmd+Shift+O` toggles click-through both ways; tray "Click-through" also restores input.
 - [ ] Tray: Show/Hide label flips (and hides/shows every clock), Always on top checkmark toggles, opacity 100/80/60/40 applies, all five built-in skins load on every clock and can also be picked in Settings → Skin (tiles show the same face, hands at ten past ten), custom SVG loads into the focused clock or is rejected with a notice, time zone changes the displayed time, Launch at login adds/removes the login item.

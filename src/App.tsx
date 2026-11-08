@@ -81,6 +81,8 @@ function ClockScreen({ settings, clock }: { settings: Settings; clock: ClockSett
         countdownDisplay={clock.countdownDisplay}
         countdownRemainingSeconds={clock.countdownRemainingSeconds}
         countdownEndsAt={clock.countdownEndsAt}
+        countdownAnimation={clock.countdownAnimation}
+        countdownAnimationLastSeconds={clock.countdownAnimationLastSeconds}
         font={clock.font}
         digitalSize={clock.digitalSize}
         digitalFit={clock.digitalFit}

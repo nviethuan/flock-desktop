@@ -18,8 +18,9 @@ import {
   timeZones,
   updateClockSettings,
 } from './lib/settings';
-import type { ClockSettings, Settings, TimeZone } from './lib/settings';
+import type { ClockSettings, CountdownAnimation, Settings, TimeZone } from './lib/settings';
 import { BUILTIN_SKINS, chooseSkinFile, describeError, loadSkin } from './lib/skins';
+import { alertSounds, playAlertSound } from './lib/sounds';
 
 /** Sent by Rust when the panel is already open and another clock asks for it. */
 export const FOCUS_EVENT = 'settings://focus-clock';
@@ -75,6 +76,20 @@ function fileName(path: string): string {
   return path.split(/[/\\]/).pop() ?? path;
 }
 
+/** Format a timestamp in the user's local timezone for a `datetime-local` field. */
+function localDateTimeInput(timestamp: number): string {
+  const date = new Date(timestamp);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** `HH:MM:SS` for a whole number of seconds, used by the countdown controls. */
+function formatCountdown(totalSeconds: number): string {
+  const safe = Math.max(0, Math.floor(totalSeconds));
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${pad(Math.floor(safe / 3600))}:${pad(Math.floor((safe % 3600) / 60))}:${pad(safe % 60)}`;
+}
+
 /** One-line description shown in the clock list. */
 function clockSummary(clock: ClockSettings, zones: readonly TimeZone[]): string {
   if (clock.displayMode === 'countdown') {
@@ -97,10 +112,15 @@ interface SettingsFormProps {
 
 function SettingsForm({ settings, clock, onSelect }: SettingsFormProps) {
   const zones = use(timeZones());
+  const sounds = use(alertSounds());
   const [format, setFormat] = useState(clock.digitalFormat);
   const [size, setSize] = useState(clock.digitalSize);
   const [side, setSide] = useState(analogSide(clock));
   const [countdownDuration, setCountdownDuration] = useState(clock.countdownDurationSeconds);
+  const [countdownTarget, setCountdownTarget] = useState('');
+  // Which input Start reads: exactly one of them is visible at a time, so there is never a
+  // question about which time the button will use.
+  const [countdownMode, setCountdownMode] = useState<'duration' | 'target'>('duration');
   const [now, setNow] = useState(Date.now());
   const [skinError, setSkinError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -125,14 +145,25 @@ function SettingsForm({ settings, clock, onSelect }: SettingsFormProps) {
   }, [clock.id, clock.countdownDurationSeconds]);
 
   useEffect(() => {
-    if (clock.countdownEndsAt <= 0) return;
+    setCountdownTarget('');
+    setCountdownMode('duration');
+  }, [clock.id]);
+
+  useEffect(() => {
+    if (clock.countdownEndsAt <= 0 && !countdownTarget) return;
+    const target = countdownTarget ? new Date(countdownTarget).getTime() : 0;
     const timer = window.setInterval(() => {
       const current = Date.now();
       setNow(current);
-      if (current >= clock.countdownEndsAt) window.clearInterval(timer);
+      if (
+        (clock.countdownEndsAt > 0 && current >= clock.countdownEndsAt) ||
+        (target > 0 && current >= target)
+      ) {
+        window.clearInterval(timer);
+      }
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [clock.countdownEndsAt]);
+  }, [clock.countdownEndsAt, countdownTarget]);
 
   useEffect(() => {
     if (countdownDuration === clock.countdownDurationSeconds) return;
@@ -218,6 +249,21 @@ function SettingsForm({ settings, clock, onSelect }: SettingsFormProps) {
     : clock.countdownEndsAt > 0
       ? 0
       : clock.countdownRemainingSeconds;
+  const targetTimestamp = countdownTarget ? new Date(countdownTarget).getTime() : Number.NaN;
+  const targetSeconds = Number.isFinite(targetTimestamp)
+    ? Math.max(0, Math.ceil((targetTimestamp - now) / 1000))
+    : null;
+  // What Start would run, given the selected mode, and therefore what the preview shows.
+  const countdownStartSeconds = countdownMode === 'target' ? targetSeconds : countdownDuration;
+  const countdownStartReady = countdownStartSeconds !== null && countdownStartSeconds > 0;
+  const pausedSeconds =
+    !countdownRunning &&
+    clock.countdownEndsAt === 0 &&
+    clock.countdownRemainingSeconds > 0 &&
+    clock.countdownRemainingSeconds < clock.countdownDurationSeconds
+      ? clock.countdownRemainingSeconds
+      : 0;
+  const countdownPreview = countdownRunning ? countdownLeft : (countdownStartSeconds ?? countdownLeft);
   const customSkin = clock.skinPath.startsWith('builtin:') ? null : fileName(clock.skinPath);
   const empty = format.trim().length === 0;
   const tooLong = format.length > 64;
@@ -375,52 +421,95 @@ function SettingsForm({ settings, clock, onSelect }: SettingsFormProps) {
           {isCountdown ? (
             <section className="settings__section">
               <h2>Countdown</h2>
-              <div className="countdown__controls">
-                <label className="countdown__duration">
-                  Duration
-                  <span className="countdown__durationFields">
-                    <input
-                      className="settings__input"
-                      type="number"
-                      min={0}
-                      max={99}
-                      value={Math.floor(countdownDuration / 3600)}
-                      aria-label="Countdown hours"
-                      onChange={(event) => {
-                        const hours = Math.min(99, Math.max(0, Number(event.target.value) || 0));
-                        setCountdownDuration(hours * 3600 + (countdownDuration % 3600));
-                      }}
-                    />
-                    <span>h</span>
-                    <input
-                      className="settings__input"
-                      type="number"
-                      min={0}
-                      max={59}
-                      value={Math.floor((countdownDuration % 3600) / 60)}
-                      aria-label="Countdown minutes"
-                      onChange={(event) => {
-                        const minutes = Math.min(59, Math.max(0, Number(event.target.value) || 0));
-                        setCountdownDuration(Math.floor(countdownDuration / 3600) * 3600 + minutes * 60 + (countdownDuration % 60));
-                      }}
-                    />
-                    <span>m</span>
-                    <input
-                      className="settings__input"
-                      type="number"
-                      min={0}
-                      max={59}
-                      value={countdownDuration % 60}
-                      aria-label="Countdown seconds"
-                      onChange={(event) => {
-                        const seconds = Math.min(59, Math.max(0, Number(event.target.value) || 0));
-                        setCountdownDuration(Math.floor(countdownDuration / 60) * 60 + seconds);
-                      }}
-                    />
-                    <span>s</span>
-                  </span>
-                </label>
+              <div className="segmented" role="group" aria-label="How the countdown length is set">
+                <button
+                  type="button"
+                  aria-pressed={countdownMode === 'duration'}
+                  onClick={() => setCountdownMode('duration')}
+                >
+                  Run for a duration
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={countdownMode === 'target'}
+                  onClick={() => setCountdownMode('target')}
+                >
+                  Run until a time
+                </button>
               </div>
+              <div className="countdown__controls">
+                {countdownMode === 'duration' ? (
+                  <label className="countdown__duration">
+                    Duration
+                    <span className="countdown__durationFields">
+                      <input
+                        className="settings__input"
+                        type="number"
+                        min={0}
+                        max={99}
+                        value={Math.floor(countdownDuration / 3600)}
+                        aria-label="Countdown hours"
+                        onChange={(event) => {
+                          const hours = Math.min(99, Math.max(0, Number(event.target.value) || 0));
+                          setCountdownDuration(hours * 3600 + (countdownDuration % 3600));
+                        }}
+                      />
+                      <span>h</span>
+                      <input
+                        className="settings__input"
+                        type="number"
+                        min={0}
+                        max={59}
+                        value={Math.floor((countdownDuration % 3600) / 60)}
+                        aria-label="Countdown minutes"
+                        onChange={(event) => {
+                          const minutes = Math.min(59, Math.max(0, Number(event.target.value) || 0));
+                          setCountdownDuration(Math.floor(countdownDuration / 3600) * 3600 + minutes * 60 + (countdownDuration % 60));
+                        }}
+                      />
+                      <span>m</span>
+                      <input
+                        className="settings__input"
+                        type="number"
+                        min={0}
+                        max={59}
+                        value={countdownDuration % 60}
+                        aria-label="Countdown seconds"
+                        onChange={(event) => {
+                          const seconds = Math.min(59, Math.max(0, Number(event.target.value) || 0));
+                          setCountdownDuration(Math.floor(countdownDuration / 60) * 60 + seconds);
+                        }}
+                      />
+                      <span>s</span>
+                    </span>
+                  </label>
+                ) : (
+                  <label className="countdown__duration">
+                    End at (local time)
+                    <input
+                      className="settings__input countdown__target"
+                      type="datetime-local"
+                      min={localDateTimeInput(Math.ceil(now / 60_000) * 60_000)}
+                      value={countdownTarget}
+                      aria-label="Countdown end date and time"
+                      onChange={(event) => setCountdownTarget(event.target.value)}
+                    />
+                  </label>
+                )}
+              </div>
+              <p className="settings__hint">
+                {countdownRunning
+                  ? `Running: ${formatCountdown(countdownLeft)} left. Pause keeps that time; Reset goes back to the duration.`
+                  : countdownMode === 'target'
+                    ? targetSeconds === null
+                      ? 'Pick a date and time in the future. Start then counts down to exactly that moment.'
+                      : targetSeconds > 0
+                        ? `Start counts down to ${new Date(targetTimestamp).toLocaleString()} (${formatCountdown(targetSeconds)} from now).`
+                        : 'That time has passed. Pick a future date and time to enable Start.'
+                    : countdownDuration > 0
+                      ? `Start counts down for ${formatCountdown(countdownDuration)} from the moment you press it.`
+                      : 'Set a duration above zero to enable Start.'}
+              </p>
               <div className="segmented" role="group" aria-label="Countdown display format">
                 <button
                   type="button"
@@ -447,24 +536,139 @@ function SettingsForm({ settings, clock, onSelect }: SettingsFormProps) {
                 }}
               >
                 {clock.countdownDisplay === 'seconds'
-                  ? countdownLeft
-                  : `${String(Math.floor(countdownLeft / 3600)).padStart(2, '0')}:${String(Math.floor((countdownLeft % 3600) / 60)).padStart(2, '0')}:${String(countdownLeft % 60).padStart(2, '0')}`}
+                  ? countdownPreview
+                  : formatCountdown(countdownPreview)}
               </p>
+              <label className="countdown__animationSetting">
+                Number animation
+                <select
+                  className="settings__input settings__select"
+                  value={clock.countdownAnimation}
+                  aria-label="Countdown number animation"
+                  onChange={(event) =>
+                    void updateClockSettings(clock.id, {
+                      countdownAnimation: event.target.value as CountdownAnimation,
+                    })
+                  }
+                >
+                  <option value="">None</option>
+                  <option value="animate__jello">animate__jello</option>
+                  <option value="animate__rubberBand">animate__rubberBand</option>
+                </select>
+              </label>
+              {clock.countdownAnimation ? (
+                <label className="countdown__animationSetting">
+                  Animate in the last N seconds
+                  <input
+                    className="settings__input"
+                    type="number"
+                    min={1}
+                    max={60}
+                    value={clock.countdownAnimationLastSeconds}
+                    aria-label="Seconds remaining to start animation"
+                    onChange={(event) => {
+                      const value = Math.max(1, Math.min(60, Number(event.target.value) || 1));
+                      void updateClockSettings(clock.id, { countdownAnimationLastSeconds: value });
+                    }}
+                  />
+                </label>
+              ) : null}
+              <label className="settings__toggle">
+                <input
+                  type="checkbox"
+                  checked={clock.countdownAlert}
+                  onChange={(event) =>
+                    void updateClockSettings(clock.id, { countdownAlert: event.target.checked })
+                  }
+                />
+                Sound alert when it finishes
+              </label>
+              {clock.countdownAlert ? (
+                <>
+                  <div className="countdown__sound">
+                    <select
+                      className="settings__input settings__select"
+                      value={clock.countdownAlertSound}
+                      aria-label="Countdown alert sound"
+                      onChange={(event) =>
+                        void updateClockSettings(clock.id, {
+                          countdownAlertSound: event.target.value,
+                        })
+                      }
+                    >
+                      <option value="">System default</option>
+                      {sounds.map((sound) => (
+                        <option key={sound.id} value={sound.id}>
+                          {sound.label}
+                        </option>
+                      ))}
+                      {/* A saved sound can disappear when the OS library changes. */}
+                      {clock.countdownAlertSound &&
+                      !sounds.some((sound) => sound.id === clock.countdownAlertSound) ? (
+                        <option value={clock.countdownAlertSound}>{clock.countdownAlertSound}</option>
+                      ) : null}
+                    </select>
+                    <button
+                      type="button"
+                      className="countdown__preview"
+                      onClick={() => playAlertSound(clock.countdownAlertSound)}
+                    >
+                      Preview
+                    </button>
+                  </div>
+                  <label className="countdown__animationSetting">
+                    Repeat the sound every second in the last N seconds (0 = off, max 15)
+                    <input
+                      className="settings__input countdown__tickSeconds"
+                      type="number"
+                      min={0}
+                      max={15}
+                      value={clock.countdownAlertTickSeconds}
+                      aria-label="Seconds before the end to repeat the sound"
+                      onChange={(event) => {
+                        const value = Math.max(0, Math.min(15, Number(event.target.value) || 0));
+                        void updateClockSettings(clock.id, { countdownAlertTickSeconds: value });
+                      }}
+                    />
+                  </label>
+                </>
+              ) : null}
               <div className="countdown__actions">
                 <button
                   type="button"
-                  disabled={countdownRunning || (countdownLeft === 0 && countdownDuration === 0)}
+                  disabled={countdownRunning || !countdownStartReady}
                   onClick={() => {
-                    const remaining = countdownLeft || countdownDuration;
-                    if (remaining <= 0) return;
+                    const endsAt =
+                      countdownMode === 'target'
+                        ? targetTimestamp
+                        : Date.now() + countdownDuration * 1000;
+                    const remaining = Math.ceil((endsAt - Date.now()) / 1000);
+                    if (!Number.isFinite(endsAt) || remaining <= 0) return;
+                    setCountdownDuration(remaining);
                     void updateClockSettings(clock.id, {
+                      countdownDurationSeconds: remaining,
                       countdownRemainingSeconds: remaining,
-                      countdownEndsAt: Date.now() + remaining * 1000,
+                      countdownEndsAt: endsAt,
                     });
+                    setCountdownTarget('');
+                    setCountdownMode('duration');
                   }}
                 >
-                  Start
+                  {countdownStartReady ? `Start ${formatCountdown(countdownStartSeconds)}` : 'Start'}
                 </button>
+                {pausedSeconds > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void updateClockSettings(clock.id, {
+                        countdownRemainingSeconds: pausedSeconds,
+                        countdownEndsAt: Date.now() + pausedSeconds * 1000,
+                      })
+                    }
+                  >
+                    Resume {formatCountdown(pausedSeconds)}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   disabled={!countdownRunning}
