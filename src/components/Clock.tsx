@@ -5,7 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { beginWindowDrag } from '../lib/drag';
 import { useClockLoop } from '../hooks/useClockLoop';
 import { fontStack } from '../lib/fonts';
-import type { DisplayMode } from '../lib/settings';
+import type { CountdownDisplay, DisplayMode } from '../lib/settings';
 import type { Skin } from '../lib/skins';
 
 /** Share of the type size kept free around the readout so the glow is not clipped. */
@@ -22,6 +22,9 @@ export interface ClockProps {
   skin: Skin;
   displayMode: DisplayMode;
   digitalFormat: string;
+  countdownDisplay: CountdownDisplay;
+  countdownRemainingSeconds: number;
+  countdownEndsAt: number;
   font: string;
   digitalSize: number;
   digitalFit: boolean;
@@ -39,6 +42,9 @@ export default function Clock({
   skin,
   displayMode,
   digitalFormat,
+  countdownDisplay,
+  countdownRemainingSeconds,
+  countdownEndsAt,
   font,
   digitalSize,
   digitalFit,
@@ -58,6 +64,9 @@ export default function Clock({
     hostRef,
     digitalRef,
     digitalFormat,
+    countdownDisplay,
+    countdownRemainingSeconds,
+    countdownEndsAt,
     digitalFont: font,
     digitalSize,
     digitalFit,
@@ -88,7 +97,7 @@ export default function Clock({
     beginWindowDrag(event.nativeEvent);
   };
 
-  if (displayMode === 'digital') {
+  if (displayMode === 'digital' || displayMode === 'countdown') {
     const className = digitalBackdrop
       ? 'clock__digital clock__digital--backdrop'
       : 'clock__digital';

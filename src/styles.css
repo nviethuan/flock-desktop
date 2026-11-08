@@ -127,6 +127,58 @@ body {
 
 /* ---------- settings window ---------- */
 
+.countdown__duration {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #cfdaea;
+  font-size: 12px;
+}
+
+.countdown__durationFields {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #8b99b0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.countdown__durationFields .settings__input {
+  width: 58px;
+  padding: 7px 4px;
+  text-align: center;
+}
+
+.countdown__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.countdown__actions button {
+  padding: 6px 12px;
+  border: 1px solid #2a3442;
+  border-radius: 8px;
+  background: #1a2029;
+  color: #dbe4f2;
+  font: inherit;
+  cursor: pointer;
+}
+
+.countdown__actions button:hover:not(:disabled) {
+  border-color: #4d7fd4;
+  color: #f4f8ff;
+}
+
+.countdown__actions button:disabled {
+  color: #5a6575;
+  cursor: not-allowed;
+}
+
+.settings__section .segmented button {
+  white-space: nowrap;
+}
+
+
 body.window--settings {
   overflow: hidden;
   background: #12161d;
@@ -180,6 +232,10 @@ body.window--settings {
   padding: 3px;
   border-radius: 9px;
   background: #1a2029;
+}
+
+.segmented--three {
+  grid-template-columns: repeat(3, 1fr);
 }
 
 .segmented button {

@@ -4,7 +4,8 @@ import { listen } from '@tauri-apps/api/event';
 export const OPACITY_STEPS = [100, 80, 60, 40] as const;
 export type Opacity = (typeof OPACITY_STEPS)[number];
 
-export type DisplayMode = 'analog' | 'digital';
+export type DisplayMode = 'analog' | 'digital' | 'countdown';
+export type CountdownDisplay = 'hhmmss' | 'seconds';
 
 /** Kept in step with `MIN_DIGITAL_SIZE`/`MAX_DIGITAL_SIZE` in `src-tauri/src/settings.rs`. */
 export const DIGITAL_SIZE_MIN = 10;
@@ -43,6 +44,14 @@ export interface ClockSettings {
   digitalColor: string;
   /** Wrap and shrink the readout when a manual drag leaves the window smaller than it. */
   digitalFit: boolean;
+  /** Configured duration used by countdown Reset and Start after expiry. */
+  countdownDurationSeconds: number;
+  /** Remaining seconds saved when paused. */
+  countdownRemainingSeconds: number;
+  /** Absolute Unix time in milliseconds when the running countdown expires; zero means paused. */
+  countdownEndsAt: number;
+  /** Countdown readout style: padded clock or total seconds. */
+  countdownDisplay: CountdownDisplay;
 }
 
 /**

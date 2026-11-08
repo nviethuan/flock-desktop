@@ -1,5 +1,5 @@
 //! Window plumbing: one clock window per saved clock, bounds restore/persist, the square
-//! analog face, the settings panel, and hide-instead-of-quit.
+//! analog face, digital readout, countdown, the settings panel, and hide-instead-of-quit.
 
 use std::time::Duration;
 
@@ -156,7 +156,7 @@ fn restored_size(clock: &Clock) -> (f64, f64) {
             let side = width.max(height).clamp(MIN_SIDE, MAX_SIDE) as f64;
             (side, side)
         }
-        DisplayMode::Digital => (
+        DisplayMode::Digital | DisplayMode::Countdown => (
             width.clamp(MIN_WIDTH, MAX_WIDTH) as f64,
             height.clamp(MIN_HEIGHT, MAX_HEIGHT) as f64,
         ),

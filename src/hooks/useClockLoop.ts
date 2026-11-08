@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import type { RefObject } from 'react';
 import { formatDigital } from '../lib/format';
 import { handAngles, wallClock } from '../lib/time';
-import type { DisplayMode } from '../lib/settings';
+import type { CountdownDisplay, DisplayMode } from '../lib/settings';
 
 interface ClockLoopOptions {
   mode: DisplayMode;
@@ -11,6 +11,9 @@ interface ClockLoopOptions {
   /** Digital text node. */
   digitalRef: RefObject<HTMLSpanElement | null>;
   digitalFormat: string;
+  countdownDisplay: CountdownDisplay;
+  countdownRemainingSeconds: number;
+  countdownEndsAt: number;
   /** Typeface id, so a font swap re-measures the readout. */
   digitalFont: string;
   /** Requested type size in CSS pixels, see `fitDigital`. */
@@ -43,6 +46,9 @@ export function useClockLoop({
   hostRef,
   digitalRef,
   digitalFormat,
+  countdownDisplay,
+  countdownRemainingSeconds,
+  countdownEndsAt,
   digitalFont,
   digitalSize,
   digitalFit,
@@ -60,9 +66,9 @@ export function useClockLoop({
     let disposed = false;
     let paint: (() => void) | null = null;
 
-    if (mode === 'digital') {
+    if (mode === 'digital' || mode === 'countdown') {
       const element = digitalRef.current;
-      if (element)
+      if (element && mode === 'digital') {
         paint = createDigitalPainter(
           element,
           timeZone,
@@ -71,6 +77,17 @@ export function useClockLoop({
           digitalFit,
           onRequestBox,
         );
+      } else if (element) {
+        paint = createCountdownPainter(
+          element,
+          countdownDisplay,
+          countdownRemainingSeconds,
+          countdownEndsAt,
+          digitalSize,
+          digitalFit,
+          onRequestBox,
+        );
+      }
     } else {
       const host = hostRef.current;
       const targets = host ? resolveTargets(host) : null;
@@ -81,8 +98,8 @@ export function useClockLoop({
     const advance = paint;
     advance();
 
-    // Hidden or minimised: stop scheduling entirely (a single repaint already happened).
-    if (paused) return;
+    // Hidden, minimised, or already expired: repaint once, then stop scheduling entirely.
+    if (paused || (mode === 'countdown' && countdownEndsAt > 0 && countdownEndsAt <= Date.now())) return;
 
     if (mode === 'analog' && smooth) {
       const minDelta = 1000 / SMOOTH_FPS;
@@ -97,12 +114,22 @@ export function useClockLoop({
       };
       frame = requestAnimationFrame(step);
     } else {
-      // Digital views and tick mode only change once per second: align to the second.
+      // Align wall clocks to the next whole second. A countdown uses its own phase so its
+      // first decrement lands exactly one second after Start, not at the next wall second.
+      const now = Date.now();
+      const phase = mode === 'countdown' && countdownEndsAt > 0 ? countdownEndsAt % 1000 : now % 1000;
+      const delay = (phase - (now % 1000) + 1000) % 1000 || 1000;
       alignment = window.setTimeout(() => {
         if (disposed) return;
         advance();
-        interval = window.setInterval(advance, 1000);
-      }, 1000 - (Date.now() % 1000));
+        interval = window.setInterval(() => {
+          advance();
+          if (mode === 'countdown' && countdownEndsAt > 0 && Date.now() >= countdownEndsAt) {
+            window.clearInterval(interval);
+            interval = 0;
+          }
+        }, 1000);
+      }, delay);
     }
 
     return () => {
@@ -116,6 +143,9 @@ export function useClockLoop({
     hostRef,
     digitalRef,
     digitalFormat,
+    countdownDisplay,
+    countdownRemainingSeconds,
+    countdownEndsAt,
     digitalFont,
     digitalSize,
     digitalFit,
@@ -129,6 +159,9 @@ export function useClockLoop({
   // Only settings changes re-hug the window; the per-second repaint never resizes it.
   useHugWindow(mode, digitalRef, onRequestBox, digitalSize, [
     digitalFormat,
+    countdownDisplay,
+    countdownRemainingSeconds,
+    countdownEndsAt,
     digitalFont,
     digitalSize,
     digitalFit,
@@ -250,6 +283,45 @@ export interface WindowBox {
   height: number;
 }
 
+function createCountdownPainter(
+  element: HTMLSpanElement,
+  display: CountdownDisplay,
+  remainingSeconds: number,
+  endsAt: number,
+  size: number,
+  shrink: boolean,
+  onRequestBox: ((box: WindowBox, hug: boolean) => void) | undefined,
+): () => void {
+  let lastText = '';
+  let lastViewport = '';
+  return () => {
+    const left = endsAt > 0 ? Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)) : remainingSeconds;
+    const text = display === 'seconds' ? String(left) : formatCountdown(left);
+    const viewport = `${window.innerWidth}x${window.innerHeight}`;
+    if (text === lastText && viewport === lastViewport) return;
+    lastText = text;
+    lastViewport = viewport;
+    if (element.textContent !== text) element.textContent = text;
+    const requested = Math.max(MIN_DIGITAL_SIZE, Math.min(MAX_RENDERED_SIZE, size));
+    if (shrink) {
+      fitDigital(element, requested);
+      return;
+    }
+    element.style.fontSize = `${requested.toFixed(2)}px`;
+    const box = neededBox(element);
+    if (box.width > window.innerWidth + 1 || box.height > window.innerHeight + 1) {
+      onRequestBox?.(box, false);
+    }
+  };
+}
+
+function formatCountdown(totalSeconds: number): string {
+  const seconds = Math.max(0, totalSeconds);
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return `${String(hours).padStart(2, '0')}:${pad2(minutes)}:${pad2(seconds % 60)}`;
+}
+
 function createDigitalPainter(
   element: HTMLSpanElement,
   timeZone: string,
@@ -300,7 +372,7 @@ function useHugWindow(
   deps: unknown[],
 ): void {
   useEffect(() => {
-    if (mode !== 'digital' || !onRequestBox) return;
+    if ((mode !== 'digital' && mode !== 'countdown') || !onRequestBox) return;
     const element = digitalRef.current;
     if (!element) return;
 

@@ -77,12 +77,16 @@ function fileName(path: string): string {
 
 /** One-line description shown in the clock list. */
 function clockSummary(clock: ClockSettings, zones: readonly TimeZone[]): string {
+  if (clock.displayMode === 'countdown') {
+    const display = clock.countdownDisplay === 'seconds' ? 'seconds' : 'HH:MM:SS';
+    return `Countdown · ${display} · ${clock.countdownDurationSeconds}s`;
+  }
   const zone = zones.find(([name]) => name === clock.timeZone)?.[1] ?? clock.timeZone;
   const look =
     clock.displayMode === 'analog'
       ? (BUILTIN_SKINS.find((skin) => skin.key === clock.skinPath)?.label ?? fileName(clock.skinPath))
       : clock.digitalFormat.trim() || DEFAULT_FORMAT;
-  return `${clock.displayMode === 'analog' ? 'Analog' : 'Digital'} · ${look} · ${zone}`;
+  return `Analog · ${look} · ${zone}`;
 }
 
 interface SettingsFormProps {
@@ -96,6 +100,8 @@ function SettingsForm({ settings, clock, onSelect }: SettingsFormProps) {
   const [format, setFormat] = useState(clock.digitalFormat);
   const [size, setSize] = useState(clock.digitalSize);
   const [side, setSide] = useState(analogSide(clock));
+  const [countdownDuration, setCountdownDuration] = useState(clock.countdownDurationSeconds);
+  const [now, setNow] = useState(Date.now());
   const [skinError, setSkinError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -113,6 +119,32 @@ function SettingsForm({ settings, clock, onSelect }: SettingsFormProps) {
   useEffect(() => {
     setSide(analogSide(clock));
   }, [clock.id, clock.width, clock.height]);
+
+  useEffect(() => {
+    setCountdownDuration(clock.countdownDurationSeconds);
+  }, [clock.id, clock.countdownDurationSeconds]);
+
+  useEffect(() => {
+    if (clock.countdownEndsAt <= 0) return;
+    const timer = window.setInterval(() => {
+      const current = Date.now();
+      setNow(current);
+      if (current >= clock.countdownEndsAt) window.clearInterval(timer);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [clock.countdownEndsAt]);
+
+  useEffect(() => {
+    if (countdownDuration === clock.countdownDurationSeconds) return;
+    const timer = window.setTimeout(() => {              void updateClockSettings(clock.id, {
+                countdownDurationSeconds: countdownDuration,
+                ...(clock.countdownEndsAt <= Date.now()
+                  ? { countdownRemainingSeconds: countdownDuration }
+                  : {}),
+              });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [countdownDuration, clock.id, clock.countdownDurationSeconds]);
 
   // Typing is local, writes are debounced so a half-typed token never fights the store.
   useEffect(() => {
@@ -176,7 +208,16 @@ function SettingsForm({ settings, clock, onSelect }: SettingsFormProps) {
     }
   };
 
+  const isAnalog = clock.displayMode === 'analog';
   const isDigital = clock.displayMode === 'digital';
+  const isCountdown = clock.displayMode === 'countdown';
+  const isReadout = !isAnalog;
+  const countdownRunning = clock.countdownEndsAt > now;
+  const countdownLeft = countdownRunning
+    ? Math.max(0, Math.ceil((clock.countdownEndsAt - now) / 1000))
+    : clock.countdownEndsAt > 0
+      ? 0
+      : clock.countdownRemainingSeconds;
   const customSkin = clock.skinPath.startsWith('builtin:') ? null : fileName(clock.skinPath);
   const empty = format.trim().length === 0;
   const tooLong = format.length > 64;
@@ -246,10 +287,10 @@ function SettingsForm({ settings, clock, onSelect }: SettingsFormProps) {
 
       <section className="settings__section">
         <h2>Display</h2>
-        <div className="segmented" role="group" aria-label="Display mode">
+        <div className="segmented segmented--three" role="group" aria-label="Display mode">
           <button
             type="button"
-            aria-pressed={!isDigital}
+            aria-pressed={isAnalog}
             onClick={() => void updateClockSettings(clock.id, { displayMode: 'analog' })}
           >
             Analog
@@ -261,10 +302,17 @@ function SettingsForm({ settings, clock, onSelect }: SettingsFormProps) {
           >
             Digital
           </button>
+          <button
+            type="button"
+            aria-pressed={isCountdown}
+            onClick={() => void updateClockSettings(clock.id, { displayMode: 'countdown' })}
+          >
+            Countdown
+          </button>
         </div>
       </section>
 
-      {!isDigital ? (
+      {isAnalog ? (
         <>
           <section className="settings__section">
             <h2>Skin</h2>
@@ -322,20 +370,140 @@ function SettingsForm({ settings, clock, onSelect }: SettingsFormProps) {
         </>
       ) : null}
 
-      {isDigital ? (
+      {isReadout ? (
         <>
-          <section className="settings__section">
-            <h2>Format</h2>
-            <input
-              className="settings__input"
-              value={format}
-              spellCheck={false}
-              autoComplete="off"
-              placeholder={DEFAULT_FORMAT}
-              aria-invalid={tooLong}
-              aria-label="Digital time format"
-              onChange={(event) => setFormat(event.target.value)}
-            />
+          {isCountdown ? (
+            <section className="settings__section">
+              <h2>Countdown</h2>
+              <div className="countdown__controls">
+                <label className="countdown__duration">
+                  Duration
+                  <span className="countdown__durationFields">
+                    <input
+                      className="settings__input"
+                      type="number"
+                      min={0}
+                      max={99}
+                      value={Math.floor(countdownDuration / 3600)}
+                      aria-label="Countdown hours"
+                      onChange={(event) => {
+                        const hours = Math.min(99, Math.max(0, Number(event.target.value) || 0));
+                        setCountdownDuration(hours * 3600 + (countdownDuration % 3600));
+                      }}
+                    />
+                    <span>h</span>
+                    <input
+                      className="settings__input"
+                      type="number"
+                      min={0}
+                      max={59}
+                      value={Math.floor((countdownDuration % 3600) / 60)}
+                      aria-label="Countdown minutes"
+                      onChange={(event) => {
+                        const minutes = Math.min(59, Math.max(0, Number(event.target.value) || 0));
+                        setCountdownDuration(Math.floor(countdownDuration / 3600) * 3600 + minutes * 60 + (countdownDuration % 60));
+                      }}
+                    />
+                    <span>m</span>
+                    <input
+                      className="settings__input"
+                      type="number"
+                      min={0}
+                      max={59}
+                      value={countdownDuration % 60}
+                      aria-label="Countdown seconds"
+                      onChange={(event) => {
+                        const seconds = Math.min(59, Math.max(0, Number(event.target.value) || 0));
+                        setCountdownDuration(Math.floor(countdownDuration / 60) * 60 + seconds);
+                      }}
+                    />
+                    <span>s</span>
+                  </span>
+                </label>
+              </div>
+              <div className="segmented" role="group" aria-label="Countdown display format">
+                <button
+                  type="button"
+                  aria-pressed={clock.countdownDisplay === 'hhmmss'}
+                  onClick={() => void updateClockSettings(clock.id, { countdownDisplay: 'hhmmss' })}
+                >
+                  HH:MM:SS
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={clock.countdownDisplay === 'seconds'}
+                  onClick={() => void updateClockSettings(clock.id, { countdownDisplay: 'seconds' })}
+                >
+                  Seconds
+                </button>
+              </div>
+              <p
+                className="settings__preview"
+                style={{
+                  fontFamily: fontStack(clock.font),
+                  fontSize: `${Math.round(size * PREVIEW_SCALE)}px`,
+                  background: clock.digitalBackdrop ? undefined : 'transparent',
+                  ...digitalTextStyle(clock.digitalColor, clock.digitalNeon),
+                }}
+              >
+                {clock.countdownDisplay === 'seconds'
+                  ? countdownLeft
+                  : `${String(Math.floor(countdownLeft / 3600)).padStart(2, '0')}:${String(Math.floor((countdownLeft % 3600) / 60)).padStart(2, '0')}:${String(countdownLeft % 60).padStart(2, '0')}`}
+              </p>
+              <div className="countdown__actions">
+                <button
+                  type="button"
+                  disabled={countdownRunning || (countdownLeft === 0 && countdownDuration === 0)}
+                  onClick={() => {
+                    const remaining = countdownLeft || countdownDuration;
+                    if (remaining <= 0) return;
+                    void updateClockSettings(clock.id, {
+                      countdownRemainingSeconds: remaining,
+                      countdownEndsAt: Date.now() + remaining * 1000,
+                    });
+                  }}
+                >
+                  Start
+                </button>
+                <button
+                  type="button"
+                  disabled={!countdownRunning}
+                  onClick={() =>
+                    void updateClockSettings(clock.id, {
+                      countdownRemainingSeconds: countdownLeft,
+                      countdownEndsAt: 0,
+                    })
+                  }
+                >
+                  Pause
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void updateClockSettings(clock.id, {
+                      countdownRemainingSeconds: countdownDuration,
+                      countdownEndsAt: 0,
+                    })
+                  }
+                >
+                  Reset
+                </button>
+              </div>
+            </section>
+          ) : null}
+          {isDigital ? (
+            <section className="settings__section">
+              <h2>Format</h2>
+                <input
+                  className="settings__input"
+                  value={format}
+                  spellCheck={false}
+                  autoComplete="off"
+                  placeholder={DEFAULT_FORMAT}
+                  aria-invalid={tooLong}
+                  aria-label="Digital time format"
+                  onChange={(event) => setFormat(event.target.value)}
+                />
             {empty || tooLong ? (
               <p className="settings__warning">
                 {empty
@@ -380,11 +548,12 @@ function SettingsForm({ settings, clock, onSelect }: SettingsFormProps) {
                 }
               </p>
             </details>
-          </section>
+            </section>
+          ) : null}
 
           <section className="settings__section">
-            <h2>Font</h2>
-            <div className="fonts" role="group" aria-label="Clock font">
+            <h2>{isCountdown ? 'Countdown font' : 'Font'}</h2>
+            <div className="fonts" role="group" aria-label={isCountdown ? 'Countdown font family' : 'Clock font'}>
               {FONTS.map((font) => (
                 <button
                   key={font.id}
@@ -394,7 +563,7 @@ function SettingsForm({ settings, clock, onSelect }: SettingsFormProps) {
                   onClick={() => void updateClockSettings(clock.id, { font: font.id })}
                 >
                   <span className="fonts__sample" style={{ fontFamily: font.stack }}>
-                    12:34
+                    {isCountdown ? '00:12:34' : '12:34'}
                   </span>
                   <span className="fonts__label">{font.label}</span>
                 </button>
@@ -403,7 +572,7 @@ function SettingsForm({ settings, clock, onSelect }: SettingsFormProps) {
           </section>
 
           <section className="settings__section">
-            <h2>Size</h2>
+            <h2>{isCountdown ? 'Countdown size' : 'Size'}</h2>
             <div className="settings__range">
               <input
                 type="range"
@@ -411,7 +580,7 @@ function SettingsForm({ settings, clock, onSelect }: SettingsFormProps) {
                 max={DIGITAL_SIZE_MAX}
                 step={1}
                 value={size}
-                aria-label="Digital font size in pixels"
+                aria-label={isCountdown ? 'Countdown font size in pixels' : 'Digital font size in pixels'}
                 onChange={(event) => setSize(Number(event.target.value))}
               />
               <output className="settings__rangeValue">{size}px</output>
@@ -425,10 +594,11 @@ function SettingsForm({ settings, clock, onSelect }: SettingsFormProps) {
                     void updateClockSettings(clock.id, { digitalFit: event.target.checked })
                   }
                 />
-                Fit to window
+                {isCountdown ? 'Fit countdown to window' : 'Fit to window'}
               </label>
             </div>
             <p className="settings__hint">
+              {isCountdown ? 'Countdown uses this clock’s selected font family and size, like Digital. ' : ''}
               44 px is the default and 100 px is the maximum. This clock's window hugs its readout
               at that exact size. Fit to window only kicks in when you drag the clock smaller than
               the text: it wraps and shrinks the readout instead of clipping it.
@@ -481,8 +651,9 @@ function SettingsForm({ settings, clock, onSelect }: SettingsFormProps) {
         </>
       ) : null}
 
-      <section className="settings__section">
-        <h2>Time zone</h2>
+      {!isCountdown ? (
+        <section className="settings__section">
+          <h2>Time zone</h2>
         <select
           className="settings__input settings__select"
           value={clock.timeZone}
@@ -499,7 +670,8 @@ function SettingsForm({ settings, clock, onSelect }: SettingsFormProps) {
           Each clock reads its own zone, so two windows can show two cities. The list is shared
           with the tray submenu.
         </p>
-      </section>
+        </section>
+      ) : null}
 
       <footer className="settings__footer">
         {/* The panel is the only place to quit once the Dock icon (and so `Cmd+Q`) is gone. */}

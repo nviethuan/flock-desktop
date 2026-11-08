@@ -124,10 +124,11 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         None::<&str>,
     )?;
 
-    let mut mode_items = Vec::with_capacity(2);
+    let mut mode_items = Vec::with_capacity(3);
     for (id, label, mode) in [
         ("mode:analog", "Analog", DisplayMode::Analog),
         ("mode:digital", "Digital", DisplayMode::Digital),
+        ("mode:countdown", "Countdown", DisplayMode::Countdown),
     ] {
         let item = CheckMenuItem::with_id(
             app,
@@ -448,6 +449,7 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             } else if let Some(mode) = other.strip_prefix("mode:") {
                 let display_mode = match mode {
                     "digital" => DisplayMode::Digital,
+                    "countdown" => DisplayMode::Countdown,
                     _ => DisplayMode::Analog,
                 };
                 settings::apply_clock_patch_all(

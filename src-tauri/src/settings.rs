@@ -102,6 +102,15 @@ pub enum DisplayMode {
     #[default]
     Analog,
     Digital,
+    Countdown,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CountdownDisplay {
+    #[default]
+    Hhmmss,
+    Seconds,
 }
 
 /// One on-screen clock: its window label, its bounds, and how it draws the time.
@@ -136,6 +145,14 @@ pub struct Clock {
     pub digital_color: String,
     /// Wraps and shrinks the readout when a manual drag leaves the window too small for it.
     pub digital_fit: bool,
+    /// User-configured countdown length; also used by Reset and Start after expiry.
+    pub countdown_duration_seconds: u32,
+    /// Remaining seconds saved while paused.
+    pub countdown_remaining_seconds: u32,
+    /// Absolute Unix timestamp in milliseconds when a running countdown expires.
+    pub countdown_ends_at: u64,
+    /// Whether the countdown shows HH:MM:SS or total seconds.
+    pub countdown_display: CountdownDisplay,
 }
 
 impl Default for Clock {
@@ -156,6 +173,10 @@ impl Default for Clock {
             digital_neon: false,
             digital_color: DEFAULT_DIGITAL_COLOR.to_string(),
             digital_fit: true,
+            countdown_duration_seconds: 300,
+            countdown_remaining_seconds: 300,
+            countdown_ends_at: 0,
+            countdown_display: CountdownDisplay::Hhmmss,
         }
     }
 }
@@ -257,6 +278,10 @@ pub struct ClockPatch {
     pub digital_neon: Option<bool>,
     pub digital_color: Option<String>,
     pub digital_fit: Option<bool>,
+    pub countdown_duration_seconds: Option<u32>,
+    pub countdown_remaining_seconds: Option<u32>,
+    pub countdown_ends_at: Option<u64>,
+    pub countdown_display: Option<CountdownDisplay>,
 }
 
 impl ClockPatch {
@@ -296,6 +321,18 @@ impl ClockPatch {
         }
         if let Some(value) = self.digital_fit {
             clock.digital_fit = value;
+        }
+        if let Some(value) = self.countdown_duration_seconds {
+            clock.countdown_duration_seconds = value;
+        }
+        if let Some(value) = self.countdown_remaining_seconds {
+            clock.countdown_remaining_seconds = value;
+        }
+        if let Some(value) = self.countdown_ends_at {
+            clock.countdown_ends_at = value;
+        }
+        if let Some(value) = self.countdown_display {
+            clock.countdown_display = value;
         }
     }
 }
@@ -426,6 +463,11 @@ fn normalize_clock(clock: &mut Clock) {
         clock.font = DEFAULT_FONT.to_string();
     }
     clock.digital_size = clock.digital_size.clamp(MIN_DIGITAL_SIZE, MAX_DIGITAL_SIZE);
+    clock.countdown_duration_seconds = clock.countdown_duration_seconds.clamp(1, 359_999);
+    clock.countdown_remaining_seconds = clock.countdown_remaining_seconds.min(359_999);
+    if clock.countdown_ends_at > 0 && clock.countdown_remaining_seconds == 0 {
+        clock.countdown_ends_at = 0;
+    }
     clock.digital_color = clock.digital_color.trim().to_ascii_lowercase();
     if !is_hex_color(&clock.digital_color) {
         clock.digital_color = DEFAULT_DIGITAL_COLOR.to_string();
@@ -590,7 +632,7 @@ fn apply_clock_patch_inner(
         }
     });
 
-    // Analog is square by contract; digital hugs its readout from the webview. A size chosen
+    // Analog is square by contract; digital and countdown hug their readout from the webview. A size chosen
     // in the panel has to reach the window too, or the face would not scale with it.
     for (before, after) in previous.clocks.iter().zip(updated.clocks.iter()) {
         if before.id != after.id {

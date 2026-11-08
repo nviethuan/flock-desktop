@@ -1,8 +1,9 @@
 # Flock
 
 Always-on-top clocks, each in its own frameless, transparent 220×220 window.
-Tauri v2 + React 19 + TypeScript, SVG analog skins or a digital readout with an editable
-ISO-style pattern and six bundled typefaces, tray menu, click-through mode, IANA time zones.
+Tauri v2 + React 19 + TypeScript, SVG analog skins, a digital readout with an editable
+ISO-style pattern, or a configurable countdown in `HH:MM:SS`/total-seconds format; six bundled
+typefaces, tray menu, click-through mode, IANA time zones.
 The Settings panel adds, styles and removes one clock at a time, so several faces — and
 several cities — can live on the same desktop.
 
@@ -158,13 +159,15 @@ npx tauri icon src-tauri/icons/app-icon.png
   "Load custom SVG…" button runs the same picker + sanitizer as the tray entry.
 - **Smooth mode is capped at 30 fps** (still visually smooth, roughly half the idle work of
   60 fps); tick mode aligns to the wall-clock second with `setInterval`.
-- **The digital display reuses the same single-writer setting** (`displayMode`,
-  `digitalFormat`, `font`, `digitalSize`, `digitalBackdrop`, `digitalNeon`, `digitalColor`)
-  and is painted by the same loop with `textContent`, so it also ticks once per second
-  instead of re-rendering React. Colour and neon glow are inline styles (`lib/colors.ts`),
-  which the loop never touches. The settings window is a second
-  webview (`label: "settings"`) that routes to `SettingsApp` in `main.tsx`; both windows get
-  live updates through `settings://changed`.
+- **Digital readout and countdown share the same text renderer** and per-clock font, size,
+  fit, colour, glow and backdrop settings. Digital mode formats wall time from `digitalFormat`;
+  countdown mode uses a saved duration, remaining value and absolute expiry timestamp, so it
+  continues accurately across app restarts. Start, Pause and Reset are in Settings, and the
+  display can be `HH:MM:SS` or total seconds. Both are painted with `textContent` once a second
+  instead of re-rendering React. Colour and neon glow are inline styles (`lib/colors.ts`), which
+  the loop never touches. The settings window is a second webview (`label: "settings"`) that
+  routes to `SettingsApp` in `main.tsx`; both windows get live updates through
+  `settings://changed`.
 
 ## Manual test checklist
 
@@ -173,12 +176,13 @@ npx tauri icon src-tauri/icons/app-icon.png
 - [ ] Window is 220×220, frameless, transparent, always on top.
 - [ ] No Dock icon and no Cmd-Tab entry by default; tray → "Hide Dock icon" unchecked brings both back without a restart, and the clock keeps ticking through the switch.
 - [ ] Double click the clock: the Settings panel opens beside it, in both analog and digital mode, and selects that clock in the list.
-- [ ] Settings → Clocks → "Add clock" opens a second window with the same look, offset a little; switching it to Digital, another skin, another time zone or another size changes only that clock, "×" removes it (disabled while a single clock is left), and both clocks come back with their own look, position and size after quit + relaunch.
+- [ ] Settings → Clocks → "Add clock" opens a second window with the same look, offset a little; switching it to Digital, Countdown, another skin, another time zone or another size changes only that clock, "×" removes it (disabled while a single clock is left), and both clocks come back with their own look, position and size after quit + relaunch.
+- [ ] Settings → Display → Countdown accepts a duration from 1 second to 99:59:59, starts/pauses/resets it, continues across relaunch, and switches between `HH:MM:SS` and total seconds.
 - [ ] Drag anywhere on the clock to move it; dragging an edge must not resize it. In analog mode the window stays square (Size slider) and the face scales to fill it; position/size survive quit + relaunch.
 - [ ] `Cmd+Shift+O` toggles click-through both ways; tray "Click-through" also restores input.
 - [ ] Tray: Show/Hide label flips (and hides/shows every clock), Always on top checkmark toggles, opacity 100/80/60/40 applies, all five built-in skins load on every clock and can also be picked in Settings → Skin (tiles show the same face, hands at ten past ten), custom SVG loads into the focused clock or is rejected with a notice, time zone changes the displayed time, Launch at login adds/removes the login item.
 - [ ] "Quit Flock" at the bottom of the panel and the tray's "Quit Flock" both exit the app and keep the clock positions for the next launch.
-- [ ] Tray → Settings… opens the panel beside the clock; switching to Digital shows `HH:mm`, typing `hh:mm:ss A` or `yyyy-MM-dd HH:mm` updates the clock live, each of the six fonts renders in its own face, the Size slider (10–100 px) resizes the readout and the window hugs it, and Style → colour swatch + "Neon glow" + "Dark backdrop" repaint it (off = transparent, floating time).
+- [ ] Tray → Settings… opens the panel beside the clock; switching to Digital shows `HH:mm`, typing `hh:mm:ss A` or `yyyy-MM-dd HH:mm` updates the clock live, Countdown supports `HH:MM:SS` and total seconds, each of the six fonts renders in its own face, the Size slider (10–100 px) resizes the readout and the window hugs it, and Style → colour swatch + "Neon glow" + "Dark backdrop" repaint it (off = transparent, floating time).
 - [ ] Minimise or hide the clock: CPU drops to ~0% in Activity Monitor; restore and it resumes on the correct second.
 - [ ] Activity Monitor: idle CPU < 1% in tick mode, RAM is a Tauri webview baseline (no growth over 10 min).
 
@@ -216,7 +220,7 @@ npx tauri icon src-tauri/icons/app-icon.png
   double click, so it is not part of the clock's always-on-top stack. It opens beside the
   clock it will edit when there is room on the monitor, otherwise centred; while it is open,
   clicking a clock still drags that clock.
-- **Tray look items are all-or-nothing.** Display, Skin, Font and Time zone apply to every
+- **Tray look items are all-or-nothing.** Display (Analog, Digital or Countdown), Skin, Font and Time zone apply to every
   clock at once; a checkmark is shown only when all clocks agree, so a mixed set reads as
   unchecked. Per-clock styling lives in the panel's clock list.
 - **Clock labels are user-visible state.** The panel always shows at least one clock and the
