@@ -320,7 +320,41 @@ npx tauri icon src-tauri/icons/app-icon.png
 - **Not measured:** idle CPU/RAM figures. Measure with Activity Monitor / Task Manager /
   `ps` after a release build; the design targets < 1% idle in tick mode.
 
-Demo
+## Demo
+<h3 style="text-align: center">Analog</h3>
+
 <p align="center">
-  <img src="demo/demo.gif" alt="Demo App" width="200">
+  <img src="demo/analog.gif" alt="Demo App" width="200">
+</p>
+
+----------------
+
+<h3 style="text-align: center">Digital</h3>
+
+<p align="center">
+  <img src="demo/digital.gif" alt="Demo App" width="420">
+</p>
+
+----------------
+
+<h3 style="text-align: center">Countdown</h3>
+
+<p align="center">
+  <img src="demo/countdown.gif" alt="Demo App" width="200">
+</p>
+
+----------------
+
+<h3 style="text-align: center">Date format</h3>
+
+<p align="center">
+  <img src="demo/date.png" alt="Demo App" width="500">
+</p>
+
+----------------
+
+<h3 style="text-align: center">Settings</h3>
+
+<p align="center">
+  <img src="demo/settings.png" alt="Demo App" width="500">
 </p>
