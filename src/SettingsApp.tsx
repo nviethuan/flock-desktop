@@ -2,6 +2,7 @@ import { use, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useSettings } from './hooks/useSettings';
+import TodosSection from './components/TodosSection';
 import { DIGITAL_COLORS, digitalColorLabel, digitalTextStyle } from './lib/colors';
 import { FONTS, fontStack } from './lib/fonts';
 import { DEFAULT_FORMAT, FORMAT_PRESETS, FORMAT_TOKENS, previewFormat } from './lib/format';
@@ -876,6 +877,8 @@ function SettingsForm({ settings, clock, onSelect }: SettingsFormProps) {
         </p>
         </section>
       ) : null}
+
+      <TodosSection />
 
       <footer className="settings__footer">
         {/* The panel is the only place to quit once the Dock icon (and so `Cmd+Q`) is gone. */}

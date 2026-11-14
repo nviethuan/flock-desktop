@@ -18,6 +18,9 @@ several cities — can live on the same desktop.
 | `tauri-plugin-global-shortcut` | 2.4.1 |
 | `tauri-plugin-autostart` | 2.7.0 |
 | `serde` / `serde_json` | 1.0.229 / 1.0.154 |
+| `reqwest` | 0.12 (rustls) |
+| `keyring` | 3.6 |
+| `chrono` | 0.4 |
 | `@tauri-apps/cli`, `@tauri-apps/api` | 2.12.4 |
 | `@tauri-apps/plugin-dialog` | 2.8.4 |
 | `react`, `react-dom` | 19.3.1 |
@@ -34,15 +37,18 @@ package.json
 tsconfig.json
 vite.config.ts
 src/
-  main.tsx                 createRoot + Suspense, routes clock vs settings by window label
+  main.tsx                 createRoot + Suspense, routes clock / settings / todo by window label
   App.tsx                  draws the clock whose id matches this window's label
   SettingsApp.tsx          settings window: clock list (add/remove/select) plus display mode,
                            format, font, size, style and time zone of the selected clock
   styles.css               transparent html/body/#root, clock + settings styles
   assets/fonts/            vendored woff2 faces + generated fonts.css + LICENSE.md
   components/Clock.tsx     drag region, analog skin host or digital text node
+  components/TodoWidget.tsx  the pinned-todo countdown window (label `todo`)
+  components/TodosSection.tsx Settings → Todos: connection, CRUD list, widget choice/style
   hooks/useClockLoop.ts    rAF / 1s loop, direct setAttribute or textContent writes
   hooks/useSettings.ts     useSyncExternalStore over lib/settings
+  hooks/useTodos.ts        useSyncExternalStore over lib/todos
   hooks/useWindowVisible.ts visibility + Tauri event pause
   lib/colors.ts            neon palette + glow/colour style helpers
   lib/format.ts            token formatter for the digital display (HH:mm, yyyy-MM-dd…)
@@ -51,11 +57,14 @@ src/
   lib/skins.ts             built-in + custom skins, cached, safe fallback
   lib/sanitize-svg.ts      DOMParser sanitizer + id validation
   lib/time.ts              Intl time-zone math, hand angles
+  lib/todos.ts             typed client for the todo commands + snapshot store
   skins/default.svg, minimal.svg, dial.svg, neon.svg, bauhaus.svg
 src-tauri/
   src/main.rs, lib.rs
   src/settings.rs          Settings model (a list of clocks), store writer, clock commands,
                            migration from the single-clock store
+  src/todos.rs             todo API client, todos.json config, OS keychain credentials and
+                           the pinned countdown widget window
   src/tray.rs              tray menu + checkmark sync (look items apply to every clock)
   src/win.rs               one window per clock, bounds restore/persist, square lock,
                            visibility, settings window creation/placement
@@ -172,6 +181,37 @@ npx tauri icon src-tauri/icons/app-icon.png
   routes to `SettingsApp` in `main.tsx`; both windows get live updates through
   `settings://changed`.
 
+## Todos and the countdown widget
+
+Flock can show the personal todos of a Voca Admin user. The Settings panel gains a **Todos**
+section with the connection form and the full list (create, edit title/schedule, complete,
+reopen, delete); any todo can be pinned to the desktop as an always-on-top **countdown
+widget** with a progress bar, its own colour/glow/backdrop, and a live `HH:MM:SS` (or `Nd`)
+countdown to `dueAt`.
+
+- **API URL:** `https://www.huannguyen.blog/api/todos` (configurable, https only;
+  `http://localhost` is allowed for development).
+- **Authentication:** the API is called as an Application with `x-api-key` and
+  `x-api-secret`. The Application needs the `todos:read/create/update/delete` policies and
+  an explicit `delegateUsn`; no request carries a user id and ownership is derived server-side.
+- **Where config lives:** `todos.json` (via `tauri-plugin-store`) holds the API URL, a masked
+  key hint, `hasCredentials` and the pinned-widget choice. It is separate from the clock
+  `settings.json`; no todo field or credential ever enters the clock snapshot.
+- **Where secrets live:** the key and secret are written to the OS credential store
+  (macOS Keychain, Windows Credential Manager, Linux Secret Service) through `keyring`, read
+  by Rust on demand, and never returned to the webview, logged, or bundled.
+- **Failure isolation:** every todo call happens in Rust and every remote error is reported
+  in the panel. Not connected or offline, the clocks, tray and settings keep working.
+
+> **Security trade-off.** An Application credential delegates one user's todos, so a desktop
+> install that holds it can read that user's list. Flock keeps the pair in the OS keychain and
+> never ships it in the build, which is appropriate for a personal install. For a distributed
+> build, the guide's preferred shape is the user login/session flow (or a small trusted
+> backend that owns the delegated credential), not an Application secret on every machine.
+
+Manual check: add the API key/secret in Settings → Todos, refresh, create a timed todo, pin
+it, confirm the desktop widget counts down and survives a relaunch, then unpin and delete it.
+
 ## Manual test checklist
 
 ### macOS
@@ -223,6 +263,11 @@ npx tauri icon src-tauri/icons/app-icon.png
   double click, so it is not part of the clock's always-on-top stack. It opens beside the
   clock it will edit when there is room on the monitor, otherwise centred; while it is open,
   clicking a clock still drags that clock.
+- **One pinned todo at a time.** The countdown widget is a second desktop window type: pinning
+  another todo moves the same window to it, and its position/colour/backdrop live in
+  `todos.json`, not in the clock settings. Its todo list refreshes when the widget opens, when
+  the panel refreshes, and after every mutation in Flock; changes made on another device show
+  up on the next refresh, not instantly.
 - **Tray look items are all-or-nothing.** Display (Analog, Digital or Countdown), Skin, Font and Time zone apply to every
   clock at once; a checkmark is shown only when all clocks agree, so a mixed set reads as
   unchecked. Per-clock styling lives in the panel's clock list.

@@ -183,7 +183,7 @@ pub fn cascade_position(app: &AppHandle, previous: Option<&Clock>) -> Option<(i3
     Some((origin.0 + CASCADE_OFFSET, origin.1 + CASCADE_OFFSET))
 }
 
-fn is_on_screen(window: &WebviewWindow, x: i32, y: i32) -> bool {
+pub fn is_on_screen(window: &WebviewWindow, x: i32, y: i32) -> bool {
     let Ok(monitors) = window.available_monitors() else {
         return false;
     };

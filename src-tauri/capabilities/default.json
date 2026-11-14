@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Every clock window may be dragged (on macOS it moves itself, elsewhere the OS does it) and never resized: sizing comes from Settings. Clock windows may open the skin file picker, and the settings window may close itself. Settings, autostart and shortcuts are driven from Rust, so they need no JS permissions.",
-  "windows": ["clock-*", "settings"],
+  "description": "Every clock window and the todo widget may be dragged (on macOS they move themselves, elsewhere the OS does it) and never resized. Clock windows may open the skin file picker, and the settings window may close itself. Settings, autostart, todos and shortcuts are driven from Rust, so they need no JS permissions beyond the default IPC.",
+  "windows": ["clock-*", "settings", "todo"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",

@@ -637,9 +637,16 @@ pub fn apply_patch(app: &AppHandle, patch: SettingsPatch) -> Settings {
         for window in win::clock_windows(app) {
             let _ = window.set_always_on_top(updated.always_on_top);
         }
+        // The todo widget is a desktop widget too, so the tray switch applies to it.
+        if let Some(window) = app.get_webview_window(crate::todos::TODO_WIDGET) {
+            let _ = window.set_always_on_top(updated.always_on_top);
+        }
     }
     if previous.click_through != updated.click_through {
         for window in win::clock_windows(app) {
+            let _ = window.set_ignore_cursor_events(updated.click_through);
+        }
+        if let Some(window) = app.get_webview_window(crate::todos::TODO_WIDGET) {
             let _ = window.set_ignore_cursor_events(updated.click_through);
         }
     }

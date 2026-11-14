@@ -1,5 +1,6 @@
 mod settings;
 mod sound;
+mod todos;
 mod tray;
 mod win;
 
@@ -24,6 +25,16 @@ pub fn run() {
             settings::remove_clock,
             settings::time_zones,
             settings::read_skin_file,
+            todos::todos_snapshot,
+            todos::todos_set_config,
+            todos::todos_refresh,
+            todos::todos_create,
+            todos::todos_update,
+            todos::todos_set_completed,
+            todos::todos_delete,
+            todos::todo_widget_pin,
+            todos::todo_widget_unpin,
+            todos::todo_widget_style,
             sound::alert_sounds,
             sound::play_alert_sound,
             win::resize_clock_box,
@@ -37,6 +48,8 @@ pub fn run() {
             let loaded = settings::load(&handle);
 
             app.manage(settings::SettingsState::new(loaded.clone()));
+            // Todos are separate remote state: no todo field ever enters `settings.json`.
+            app.manage(todos::TodosState::new(todos::load(&handle)));
             // A countdown that is still running after a relaunch keeps its alarm.
             settings::arm_alerts(&handle, &loaded);
             settings::apply_autostart(&handle, loaded.launch_at_login);
@@ -46,6 +59,11 @@ pub fn run() {
             // Every clock is its own window, so none of them comes from tauri.conf.json.
             win::setup(&handle, &loaded)?;
             tray::build(&handle)?;
+
+            // A pinned todo widget is part of the saved desktop layout.
+            if let Err(error) = todos::restore_widget(&handle) {
+                eprintln!("flock: could not restore the todo widget: {error}");
+            }
 
             if let Err(error) = settings::register_shortcut(&handle) {
                 eprintln!("flock: global shortcut unavailable: {error}");
@@ -58,6 +76,9 @@ pub fn run() {
         .run(|app, event| {
             if let RunEvent::ExitRequested { .. } = event {
                 settings::persist_now(app);
+                if let Some(state) = app.try_state::<todos::TodosState>() {
+                    todos::persist(app, &state.config_snapshot());
+                }
             }
         });
 }
