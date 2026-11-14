@@ -398,6 +398,14 @@ it, confirm the desktop widget counts down and survives a relaunch, then unpin a
 
 ----------------
 
+<h3 style="text-align: center">Todos</h3>
+
+<p align="center">
+  <img src="demo/todo.png" alt="Demo App" width="500">
+</p>
+
+----------------
+
 <h3 style="text-align: center">Settings</h3>
 
 <p align="center">
