@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "reinstall": "./scripts/reinstall-macos.sh",
+    "reinstall:nobuild": "./scripts/reinstall-macos.sh --no-build"
   },
   "dependencies": {
     "@tauri-apps/api": "2.12.4",

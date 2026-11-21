@@ -29,8 +29,11 @@ const DEFAULT_HEIGHT: u32 = 220;
 /// Offset of a freshly added clock from the previous one, in physical pixels.
 const CASCADE_OFFSET: i32 = 36;
 
-const SETTINGS_PANEL_WIDTH: f64 = 420.0;
-const SETTINGS_PANEL_HEIGHT: f64 = 600.0;
+/// Wide enough for the settings sidebar plus a readable content column.
+const SETTINGS_PANEL_WIDTH: f64 = 760.0;
+const SETTINGS_PANEL_HEIGHT: f64 = 620.0;
+const SETTINGS_PANEL_MIN_WIDTH: f64 = 620.0;
+const SETTINGS_PANEL_MIN_HEIGHT: f64 = 460.0;
 
 const BOUNDS_PERSIST_INTERVAL: Duration = Duration::from_millis(900);
 
@@ -356,7 +359,7 @@ pub fn open_settings(app: &AppHandle, focus_clock: Option<String>) -> Result<(),
     )
     .title("Flock Settings")
     .inner_size(SETTINGS_PANEL_WIDTH, SETTINGS_PANEL_HEIGHT)
-    .min_inner_size(SETTINGS_PANEL_WIDTH, 480.0)
+    .min_inner_size(SETTINGS_PANEL_MIN_WIDTH, SETTINGS_PANEL_MIN_HEIGHT)
     .focused(true);
 
     let placement = position_beside_clock(app, target.as_deref());

@@ -226,7 +226,7 @@ function TodoForm({ initial, submitLabel, busy, onSubmit, onCancel }: TodoFormPr
  * desktop countdown widget shows. Todo state is remote, so every failure is reported here
  * and never touches the clock settings.
  */
-export default function TodosSection() {
+export default function TodosSection({ heading = true }: { heading?: boolean }) {
   const snapshot = useTodos();
   const { config, todos } = snapshot;
 
@@ -388,7 +388,7 @@ export default function TodosSection() {
 
   return (
     <section className="settings__section">
-      <h2>Todos</h2>
+      {heading ? <h2>Todos</h2> : null}
 
       {config.hasCredentials ? (
         <details className="todos__connection">

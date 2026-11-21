@@ -26,17 +26,64 @@ import { alertSounds, playAlertSound } from './lib/sounds';
 /** Sent by Rust when the panel is already open and another clock asks for it. */
 export const FOCUS_EVENT = 'settings://focus-clock';
 
+/** One entry of the panel's sidebar navigation. Each section is a different job. */
+type SectionId = 'appearance' | 'countdown' | 'timezone' | 'todos';
+
+interface SectionDef {
+  id: SectionId;
+  label: string;
+  title: string;
+  hint: string;
+  /** Sections that edit the selected clock show which one in the header. */
+  perClock: boolean;
+}
+
+const SECTIONS: readonly SectionDef[] = [
+  {
+    id: 'appearance',
+    label: 'Appearance',
+    title: 'Appearance',
+    hint: 'How this clock looks. Every change applies immediately.',
+    perClock: true,
+  },
+  {
+    id: 'countdown',
+    label: 'Countdown',
+    title: 'Countdown',
+    hint: 'Run a timer in this clock’s window, with an optional alert.',
+    perClock: true,
+  },
+  {
+    id: 'timezone',
+    label: 'Time zone',
+    title: 'Time zone',
+    hint: 'Which city’s time this clock reads.',
+    perClock: true,
+  },
+  {
+    id: 'todos',
+    label: 'Todos',
+    title: 'Todos',
+    hint: 'Your personal list and the countdown widget on the desktop.',
+    perClock: false,
+  },
+];
+
 export default function SettingsApp() {
   use(settingsReady());
   const settings = useSettings();
   const [selectedId, setSelectedId] = useState<string | null>(focusedClockFromUrl);
+  const [section, setSection] = useState<SectionId>('appearance');
 
-  // A double click on a clock asks this panel to switch to that clock.
+  // A double click on a clock asks this panel to switch to that clock and to its look.
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
 
-    void listen<string>(FOCUS_EVENT, (event) => setSelectedId(event.payload)).then((unlistenFn) => {
+    void listen<string>(FOCUS_EVENT, (event) => {
+      setSelectedId(event.payload);
+      setSection('appearance');
+    }).then((unlistenFn) => {
       if (disposed) unlistenFn();
       else unlisten = unlistenFn;
     });
@@ -52,7 +99,15 @@ export default function SettingsApp() {
   const clock = clockById(settings, selectedId) ?? settings.clocks[0] ?? null;
   if (!clock) return null;
 
-  return <SettingsForm settings={settings} clock={clock} onSelect={setSelectedId} />;
+  return (
+    <SettingsForm
+      settings={settings}
+      clock={clock}
+      section={section}
+      onSelect={setSelectedId}
+      onSectionChange={setSection}
+    />
+  );
 }
 
 /** The clock to edit when the panel is opened for a specific window (see `win.rs`). */
@@ -105,13 +160,55 @@ function clockSummary(clock: ClockSettings, zones: readonly TimeZone[]): string 
   return `Analog · ${look} · ${zone}`;
 }
 
+/** Sidebar glyphs: one per section, drawn from the section id so they stay in step. */
+function SectionIcon({ id }: { id: SectionId }) {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {id === 'appearance' ? (
+        <>
+          <circle cx="8" cy="8" r="5.6" />
+          <path d="M8 4.9V8l2.2 1.4" />
+        </>
+      ) : id === 'countdown' ? (
+        <>
+          <path d="M4.6 2.4h6.8M4.6 13.6h6.8" />
+          <path d="M5.6 2.4v1.9L8 7.5l2.4-3.2V2.4M5.6 13.6v-1.9L8 8.5l2.4 3.2v1.9" />
+        </>
+      ) : id === 'timezone' ? (
+        <>
+          <circle cx="8" cy="8" r="5.6" />
+          <path d="M2.4 8h11.2" />
+          <path d="M8 2.4c1.7 1.6 2.6 3.5 2.6 5.6S9.7 12.3 8 13.6C6.3 12 5.4 10.1 5.4 8S6.3 3.9 8 2.4Z" />
+        </>
+      ) : (
+        <>
+          <path d="M2.8 4.6l1.1 1.1 2-2.1M2.8 10.4l1.1 1.1 2-2.1" />
+          <path d="M8.6 4.9h4.6M8.6 10.7h4.6" />
+        </>
+      )}
+    </svg>
+  );
+}
+
 interface SettingsFormProps {
   settings: Settings;
   clock: ClockSettings;
+  section: SectionId;
   onSelect: (clockId: string) => void;
+  onSectionChange: (section: SectionId) => void;
 }
 
-function SettingsForm({ settings, clock, onSelect }: SettingsFormProps) {
+function SettingsForm({ settings, clock, section, onSelect, onSectionChange }: SettingsFormProps) {
   const zones = use(timeZones());
   const sounds = use(alertSounds());
   const [format, setFormat] = useState(clock.digitalFormat);
@@ -127,6 +224,7 @@ function SettingsForm({ settings, clock, onSelect }: SettingsFormProps) {
   const [notice, setNotice] = useState<string | null>(null);
 
   const index = settings.clocks.findIndex((entry) => entry.id === clock.id);
+  const activeSection = SECTIONS.find((entry) => entry.id === section) ?? SECTIONS[0];
 
   // Keep the controls in step when the value changes elsewhere (tray, another clock, drag).
   useEffect(() => {
@@ -272,631 +370,708 @@ function SettingsForm({ settings, clock, onSelect }: SettingsFormProps) {
 
   return (
     <div className="settings">
-      <header className="settings__header">
-        <h1>Flock</h1>
-        <p>
-          {settings.clocks.length > 1
-            ? `Editing clock ${index + 1} of ${settings.clocks.length}. Changes apply immediately.`
-            : 'Pick how the clock looks. Changes apply immediately.'}
-        </p>
-      </header>
-
-      <section className="settings__section">
-        <h2>Clocks</h2>
-        <div className="clocks" role="list">
-          {settings.clocks.map((entry, position) => (
-            <div className="clocks__row" role="listitem" key={entry.id}>
-              <button
-                type="button"
-                className="clocks__pick"
-                aria-pressed={entry.id === clock.id}
-                onClick={() => onSelect(entry.id)}
-              >
-                <span className="clocks__name">Clock {position + 1}</span>
-                <span className="clocks__detail">{clockSummary(entry, zones)}</span>
-              </button>
-              <button
-                type="button"
-                className="clocks__remove"
-                aria-label={`Remove clock ${position + 1}`}
-                title={
-                  settings.clocks.length > 1
-                    ? `Remove clock ${position + 1}`
-                    : 'Flock keeps at least one clock'
-                }
-                disabled={settings.clocks.length <= 1}
-                onClick={() => void removeThis(entry.id)}
-              >
-                ×
-              </button>
-            </div>
-          ))}
+      <aside className="settings__sidebar">
+        <div className="sidebar__brand">
+          <span className="sidebar__brandName">Flock</span>
+          <span className="sidebar__brandHint">Settings</span>
         </div>
-        <button
-          type="button"
-          className="clocks__add"
-          disabled={settings.clocks.length >= MAX_CLOCKS}
-          onClick={() => void addAnother()}
-        >
-          + Add clock
-        </button>
-        <p className="settings__hint">
-          Every clock is its own always-on-top window with its own style, time zone and size, so
-          you can mix an analog face with a digital readout on the same desktop. Double-click a
-          clock to edit it here; drag it to move it.
-        </p>
-        {notice ? (
-          <p className="settings__warning" role="status">
-            {notice}
-          </p>
-        ) : null}
-      </section>
 
-      <section className="settings__section">
-        <h2>Display</h2>
-        <div className="segmented segmented--three" role="group" aria-label="Display mode">
-          <button
-            type="button"
-            aria-pressed={isAnalog}
-            onClick={() => void updateClockSettings(clock.id, { displayMode: 'analog' })}
-          >
-            Analog
-          </button>
-          <button
-            type="button"
-            aria-pressed={isDigital}
-            onClick={() => void updateClockSettings(clock.id, { displayMode: 'digital' })}
-          >
-            Digital
-          </button>
-          <button
-            type="button"
-            aria-pressed={isCountdown}
-            onClick={() => void updateClockSettings(clock.id, { displayMode: 'countdown' })}
-          >
-            Countdown
-          </button>
-        </div>
-      </section>
-
-      {isAnalog ? (
-        <>
-          <section className="settings__section">
-            <h2>Skin</h2>
-            <div className="skins" role="group" aria-label="Clock skin">
-              {BUILTIN_SKINS.map((entry) => (
-                <button
-                  key={entry.key}
-                  type="button"
-                  className="skins__option"
-                  aria-pressed={clock.skinPath === entry.key}
-                  onClick={() => void updateClockSettings(clock.id, { skinPath: entry.key })}
-                >
-                  <SkinThumb markupKey={entry.key} />
-                  <span className="skins__label">{entry.label}</span>
-                </button>
+        <div className="sidebar__scroll">
+          <div className="sidebar__group">
+            <p className="sidebar__label">Clocks</p>
+            <div className="clocks" role="list">
+              {settings.clocks.map((entry, position) => (
+                <div className="clockItem" role="listitem" key={entry.id}>
+                  <button
+                    type="button"
+                    className="clockItem__pick"
+                    aria-pressed={entry.id === clock.id}
+                    onClick={() => onSelect(entry.id)}
+                  >
+                    <span className="clockItem__name">Clock {position + 1}</span>
+                    <span className="clockItem__detail">{clockSummary(entry, zones)}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="clockItem__remove"
+                    aria-label={`Remove clock ${position + 1}`}
+                    title={
+                      settings.clocks.length > 1
+                        ? `Remove clock ${position + 1}`
+                        : 'Flock keeps at least one clock'
+                    }
+                    disabled={settings.clocks.length <= 1}
+                    onClick={() => void removeThis(entry.id)}
+                  >
+                    ×
+                  </button>
+                </div>
               ))}
             </div>
-            <div className="skins__custom">
-              <button type="button" className="skins__pick" onClick={() => void pickSkin()}>
-                Load custom SVG…
-              </button>
-              <span className="skins__customName">{customSkin ?? 'No file loaded'}</span>
-            </div>
-            {skinError ? (
+            <button
+              type="button"
+              className="sidebar__add"
+              disabled={settings.clocks.length >= MAX_CLOCKS}
+              onClick={() => void addAnother()}
+            >
+              + Add clock
+            </button>
+            {notice ? (
               <p className="settings__warning" role="status">
-                {skinError}
+                {notice}
               </p>
             ) : null}
-            <p className="settings__hint">
-              Skins are SVG files that draw the time with hands (#hour-hand, #minute-hand,
-              #second-hand) or with progress rings (#second-ring, #minute-ring, #hour-ring). They
-              are sanitized before they are shown: no scripts, no remote images. The tray menu
-              applies a skin to every clock at once.
-            </p>
-          </section>
-          <section className="settings__section">
-            <h2>Size</h2>
-            <div className="settings__range">
-              <input
-                type="range"
-                min={ANALOG_SIZE_MIN}
-                max={ANALOG_SIZE_MAX}
-                step={4}
-                value={side}
-                aria-label="Analog clock size in pixels"
-                onChange={(event) => setSide(Number(event.target.value))}
-              />
-              <output className="settings__rangeValue">{side}px</output>
-            </div>
-            <p className="settings__hint">
-              The face is square, so this is the window side and the skin scales to fill it. Only
-              this clock changes.
-            </p>
-          </section>
-        </>
-      ) : null}
+          </div>
 
-      {isReadout ? (
-        <>
-          {isCountdown ? (
-            <section className="settings__section">
-              <h2>Countdown</h2>
-              <div className="segmented" role="group" aria-label="How the countdown length is set">
-                <button
-                  type="button"
-                  aria-pressed={countdownMode === 'duration'}
-                  onClick={() => setCountdownMode('duration')}
-                >
-                  Run for a duration
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={countdownMode === 'target'}
-                  onClick={() => setCountdownMode('target')}
-                >
-                  Run until a time
-                </button>
-              </div>
-              <div className="countdown__controls">
-                {countdownMode === 'duration' ? (
-                  <label className="countdown__duration">
-                    Duration
-                    <span className="countdown__durationFields">
-                      <input
-                        className="settings__input"
-                        type="number"
-                        min={0}
-                        max={99}
-                        value={Math.floor(countdownDuration / 3600)}
-                        aria-label="Countdown hours"
-                        onChange={(event) => {
-                          const hours = Math.min(99, Math.max(0, Number(event.target.value) || 0));
-                          setCountdownDuration(hours * 3600 + (countdownDuration % 3600));
-                        }}
-                      />
-                      <span>h</span>
-                      <input
-                        className="settings__input"
-                        type="number"
-                        min={0}
-                        max={59}
-                        value={Math.floor((countdownDuration % 3600) / 60)}
-                        aria-label="Countdown minutes"
-                        onChange={(event) => {
-                          const minutes = Math.min(59, Math.max(0, Number(event.target.value) || 0));
-                          setCountdownDuration(Math.floor(countdownDuration / 3600) * 3600 + minutes * 60 + (countdownDuration % 60));
-                        }}
-                      />
-                      <span>m</span>
-                      <input
-                        className="settings__input"
-                        type="number"
-                        min={0}
-                        max={59}
-                        value={countdownDuration % 60}
-                        aria-label="Countdown seconds"
-                        onChange={(event) => {
-                          const seconds = Math.min(59, Math.max(0, Number(event.target.value) || 0));
-                          setCountdownDuration(Math.floor(countdownDuration / 60) * 60 + seconds);
-                        }}
-                      />
-                      <span>s</span>
-                    </span>
-                  </label>
-                ) : (
-                  <label className="countdown__duration">
-                    End at (local time)
-                    <input
-                      className="settings__input countdown__target"
-                      type="datetime-local"
-                      min={localDateTimeInput(Math.ceil(now / 60_000) * 60_000)}
-                      value={countdownTarget}
-                      aria-label="Countdown end date and time"
-                      onChange={(event) => setCountdownTarget(event.target.value)}
-                    />
-                  </label>
-                )}
-              </div>
-              <p className="settings__hint">
-                {countdownRunning
-                  ? `Running: ${formatCountdown(countdownLeft)} left. Pause keeps that time; Reset goes back to the duration.`
-                  : countdownMode === 'target'
-                    ? targetSeconds === null
-                      ? 'Pick a date and time in the future. Start then counts down to exactly that moment.'
-                      : targetSeconds > 0
-                        ? `Start counts down to ${new Date(targetTimestamp).toLocaleString()} (${formatCountdown(targetSeconds)} from now).`
-                        : 'That time has passed. Pick a future date and time to enable Start.'
-                    : countdownDuration > 0
-                      ? `Start counts down for ${formatCountdown(countdownDuration)} from the moment you press it.`
-                      : 'Set a duration above zero to enable Start.'}
-              </p>
-              <div className="segmented" role="group" aria-label="Countdown display format">
-                <button
-                  type="button"
-                  aria-pressed={clock.countdownDisplay === 'hhmmss'}
-                  onClick={() => void updateClockSettings(clock.id, { countdownDisplay: 'hhmmss' })}
-                >
-                  HH:MM:SS
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={clock.countdownDisplay === 'seconds'}
-                  onClick={() => void updateClockSettings(clock.id, { countdownDisplay: 'seconds' })}
-                >
-                  Seconds
-                </button>
-              </div>
-              <p
-                className="settings__preview"
-                style={{
-                  fontFamily: fontStack(clock.font),
-                  fontSize: `${Math.round(size * PREVIEW_SCALE)}px`,
-                  background: clock.digitalBackdrop ? undefined : 'transparent',
-                  ...digitalTextStyle(clock.digitalColor, clock.digitalNeon),
-                }}
+          <nav className="sidebar__nav" aria-label="Settings sections">
+            {SECTIONS.map((entry) => (
+              <button
+                key={entry.id}
+                type="button"
+                className="sidebar__navItem"
+                aria-current={section === entry.id ? 'page' : undefined}
+                onClick={() => onSectionChange(entry.id)}
               >
-                {clock.countdownDisplay === 'seconds'
-                  ? countdownPreview
-                  : formatCountdown(countdownPreview)}
-              </p>
-              <label className="countdown__animationSetting">
-                Number animation
-                <select
-                  className="settings__input settings__select"
-                  value={clock.countdownAnimation}
-                  aria-label="Countdown number animation"
-                  onChange={(event) =>
-                    void updateClockSettings(clock.id, {
-                      countdownAnimation: event.target.value as CountdownAnimation,
-                    })
-                  }
-                >
-                  <option value="">None</option>
-                  <option value="animate__jello">animate__jello</option>
-                  <option value="animate__rubberBand">animate__rubberBand</option>
-                </select>
-              </label>
-              {clock.countdownAnimation ? (
-                <label className="countdown__animationSetting">
-                  Animate in the last N seconds
+                <SectionIcon id={entry.id} />
+                <span>{entry.label}</span>
+              </button>
+            ))}
+          </nav>
+        </div>
+
+        <div className="sidebar__footer">
+          {/* The panel is the only place to quit once the Dock icon (and so `Cmd+Q`) is gone. */}
+          <button type="button" className="sidebar__quit" onClick={() => void invoke('quit_app')}>
+            Quit Flock
+          </button>
+          <button type="button" className="sidebar__close" onClick={() => void invoke('close_settings')}>
+            Close
+          </button>
+        </div>
+      </aside>
+
+      <main className="settings__content">
+        <header className="settings__header">
+          <div>
+            <h1>{activeSection.title}</h1>
+            <p>{activeSection.hint}</p>
+          </div>
+          {activeSection.perClock ? (
+            <span className="settings__chip" title={clockSummary(clock, zones)}>
+              Clock {index + 1}
+            </span>
+          ) : null}
+        </header>
+
+        <div className="settings__body">
+          {section === 'appearance' ? (
+            <>
+              <section className="settings__section">
+                <h2>Display mode</h2>
+                <div className="segmented segmented--three" role="group" aria-label="Display mode">
+                  <button
+                    type="button"
+                    aria-pressed={isAnalog}
+                    onClick={() => void updateClockSettings(clock.id, { displayMode: 'analog' })}
+                  >
+                    Analog
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={isDigital}
+                    onClick={() => void updateClockSettings(clock.id, { displayMode: 'digital' })}
+                  >
+                    Digital
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={isCountdown}
+                    onClick={() => void updateClockSettings(clock.id, { displayMode: 'countdown' })}
+                  >
+                    Countdown
+                  </button>
+                </div>
+                <p className="settings__hint">
+                  {isAnalog
+                    ? 'A skin draws the time with hands or progress rings.'
+                    : isDigital
+                      ? 'The readout shows this clock’s time zone in a format you write.'
+                      : 'This window counts down; the timer itself is under Countdown.'}
+                </p>
+              </section>
+
+              {isAnalog ? (
+                <>
+                  <section className="settings__section">
+                    <h2>Skin</h2>
+                    <div className="skins" role="group" aria-label="Clock skin">
+                      {BUILTIN_SKINS.map((entry) => (
+                        <button
+                          key={entry.key}
+                          type="button"
+                          className="skins__option"
+                          aria-pressed={clock.skinPath === entry.key}
+                          onClick={() => void updateClockSettings(clock.id, { skinPath: entry.key })}
+                        >
+                          <SkinThumb markupKey={entry.key} />
+                          <span className="skins__label">{entry.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="skins__custom">
+                      <button type="button" className="skins__pick" onClick={() => void pickSkin()}>
+                        Load custom SVG…
+                      </button>
+                      <span className="skins__customName">{customSkin ?? 'No file loaded'}</span>
+                    </div>
+                    {skinError ? (
+                      <p className="settings__warning" role="status">
+                        {skinError}
+                      </p>
+                    ) : null}
+                    <p className="settings__hint">
+                      Skins are SVG files that draw the time with hands (#hour-hand, #minute-hand,
+                      #second-hand) or with progress rings (#second-ring, #minute-ring,
+                      #hour-ring). They are sanitized before they are shown: no scripts, no remote
+                      images. The tray menu applies a skin to every clock at once.
+                    </p>
+                  </section>
+                  <section className="settings__section">
+                    <h2>Size</h2>
+                    <div className="settings__range">
+                      <input
+                        type="range"
+                        min={ANALOG_SIZE_MIN}
+                        max={ANALOG_SIZE_MAX}
+                        step={4}
+                        value={side}
+                        aria-label="Analog clock size in pixels"
+                        onChange={(event) => setSide(Number(event.target.value))}
+                      />
+                      <output className="settings__rangeValue">{side}px</output>
+                    </div>
+                    <p className="settings__hint">
+                      The face is square, so this is the window side and the skin scales to fill
+                      it. Only this clock changes.
+                    </p>
+                  </section>
+                </>
+              ) : null}
+
+              {isDigital ? (
+                <section className="settings__section">
+                  <h2>Format</h2>
                   <input
                     className="settings__input"
-                    type="number"
-                    min={1}
-                    max={60}
-                    value={clock.countdownAnimationLastSeconds}
-                    aria-label="Seconds remaining to start animation"
-                    onChange={(event) => {
-                      const value = Math.max(1, Math.min(60, Number(event.target.value) || 1));
-                      void updateClockSettings(clock.id, { countdownAnimationLastSeconds: value });
-                    }}
+                    value={format}
+                    spellCheck={false}
+                    autoComplete="off"
+                    placeholder={DEFAULT_FORMAT}
+                    aria-invalid={tooLong}
+                    aria-label="Digital time format"
+                    onChange={(event) => setFormat(event.target.value)}
                   />
-                </label>
+                  {empty || tooLong ? (
+                    <p className="settings__warning">
+                      {empty
+                        ? `Empty formats fall back to ${DEFAULT_FORMAT}.`
+                        : 'Formats are limited to 64 characters.'}
+                    </p>
+                  ) : null}
+
+                  <p
+                    className="settings__preview"
+                    style={{
+                      fontFamily: fontStack(clock.font),
+                      fontSize: `${Math.round(size * PREVIEW_SCALE)}px`,
+                      background: clock.digitalBackdrop ? undefined : 'transparent',
+                      ...digitalTextStyle(clock.digitalColor, clock.digitalNeon),
+                    }}
+                  >
+                    {preview}
+                  </p>
+
+                  <div className="presets">
+                    {FORMAT_PRESETS.map((preset) => (
+                      <button key={preset} type="button" onClick={() => setFormat(preset)}>
+                        {preset}
+                      </button>
+                    ))}
+                  </div>
+
+                  <details className="settings__tokens">
+                    <summary>Format tokens</summary>
+                    <dl>
+                      {FORMAT_TOKENS.map(([token, description]) => (
+                        <div key={token}>
+                          <dt>{token}</dt>
+                          <dd>{description}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                    <p className="settings__hint">
+                      {
+                        "Wrap literal text in single quotes, e.g. HH:mm 'UTC'. Type \\n to start a new line, e.g. HH:mm\\nEEE."
+                      }
+                    </p>
+                  </details>
+                </section>
               ) : null}
-              <label className="settings__toggle">
-                <input
-                  type="checkbox"
-                  checked={clock.countdownAlert}
-                  onChange={(event) =>
-                    void updateClockSettings(clock.id, { countdownAlert: event.target.checked })
-                  }
-                />
-                Sound alert when it finishes
-              </label>
-              {clock.countdownAlert ? (
+
+              {isReadout ? (
                 <>
-                  <div className="countdown__sound">
-                    <select
-                      className="settings__input settings__select"
-                      value={clock.countdownAlertSound}
-                      aria-label="Countdown alert sound"
-                      onChange={(event) =>
+                  <section className="settings__section">
+                    <h2>{isCountdown ? 'Countdown font' : 'Font'}</h2>
+                    <div
+                      className="fonts"
+                      role="group"
+                      aria-label={isCountdown ? 'Countdown font family' : 'Clock font'}
+                    >
+                      {FONTS.map((font) => (
+                        <button
+                          key={font.id}
+                          type="button"
+                          className="fonts__option"
+                          aria-pressed={clock.font === font.id}
+                          onClick={() => void updateClockSettings(clock.id, { font: font.id })}
+                        >
+                          <span className="fonts__sample" style={{ fontFamily: font.stack }}>
+                            {isCountdown ? '00:12:34' : '12:34'}
+                          </span>
+                          <span className="fonts__label">{font.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className="settings__section">
+                    <h2>{isCountdown ? 'Countdown size' : 'Size'}</h2>
+                    <div className="settings__range">
+                      <input
+                        type="range"
+                        min={DIGITAL_SIZE_MIN}
+                        max={DIGITAL_SIZE_MAX}
+                        step={1}
+                        value={size}
+                        aria-label={
+                          isCountdown ? 'Countdown font size in pixels' : 'Digital font size in pixels'
+                        }
+                        onChange={(event) => setSize(Number(event.target.value))}
+                      />
+                      <output className="settings__rangeValue">{size}px</output>
+                    </div>
+                    <div className="settings__toggles">
+                      <label className="settings__toggle">
+                        <input
+                          type="checkbox"
+                          checked={clock.digitalFit}
+                          onChange={(event) =>
+                            void updateClockSettings(clock.id, { digitalFit: event.target.checked })
+                          }
+                        />
+                        {isCountdown ? 'Fit countdown to window' : 'Fit to window'}
+                      </label>
+                    </div>
+                    <p className="settings__hint">
+                      {isCountdown
+                        ? 'Countdown uses this clock’s selected font family and size, like Digital. '
+                        : ''}
+                      44 px is the default and 100 px is the maximum. This clock's window hugs its
+                      readout at that exact size. Fit to window only kicks in when you drag the
+                      clock smaller than the text: it wraps and shrinks the readout instead of
+                      clipping it.
+                    </p>
+                  </section>
+
+                  <section className="settings__section">
+                    <h2>Style</h2>
+                    <div className="swatches" role="group" aria-label="Digital colour">
+                      {DIGITAL_COLORS.map((color) => (
+                        <button
+                          key={color.value}
+                          type="button"
+                          className="swatches__option"
+                          style={{ background: color.value }}
+                          aria-pressed={clock.digitalColor === color.value}
+                          aria-label={color.label}
+                          title={color.label}
+                          onClick={() => void updateClockSettings(clock.id, { digitalColor: color.value })}
+                        />
+                      ))}
+                    </div>
+                    <div className="settings__toggles">
+                      <label className="settings__toggle">
+                        <input
+                          type="checkbox"
+                          checked={clock.digitalNeon}
+                          onChange={(event) =>
+                            void updateClockSettings(clock.id, { digitalNeon: event.target.checked })
+                          }
+                        />
+                        Neon glow
+                      </label>
+                      <label className="settings__toggle">
+                        <input
+                          type="checkbox"
+                          checked={clock.digitalBackdrop}
+                          onChange={(event) =>
+                            void updateClockSettings(clock.id, {
+                              digitalBackdrop: event.target.checked,
+                            })
+                          }
+                        />
+                        Dark backdrop
+                      </label>
+                    </div>
+                    <p className="settings__hint">
+                      {digitalColorLabel(clock.digitalColor)}. Turn the backdrop off to float the
+                      time on your desktop; the neon glow makes it readable over most wallpapers.
+                    </p>
+                  </section>
+                </>
+              ) : null}
+            </>
+          ) : null}
+
+          {section === 'countdown' ? (
+            isCountdown ? (
+              <>
+                <section className="settings__section">
+                  <h2>Timer</h2>
+                  <div className="segmented" role="group" aria-label="How the countdown length is set">
+                    <button
+                      type="button"
+                      aria-pressed={countdownMode === 'duration'}
+                      onClick={() => setCountdownMode('duration')}
+                    >
+                      Run for a duration
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={countdownMode === 'target'}
+                      onClick={() => setCountdownMode('target')}
+                    >
+                      Run until a time
+                    </button>
+                  </div>
+                  <div className="countdown__controls">
+                    {countdownMode === 'duration' ? (
+                      <label className="countdown__duration">
+                        Duration
+                        <span className="countdown__durationFields">
+                          <input
+                            className="settings__input"
+                            type="number"
+                            min={0}
+                            max={99}
+                            value={Math.floor(countdownDuration / 3600)}
+                            aria-label="Countdown hours"
+                            onChange={(event) => {
+                              const hours = Math.min(99, Math.max(0, Number(event.target.value) || 0));
+                              setCountdownDuration(hours * 3600 + (countdownDuration % 3600));
+                            }}
+                          />
+                          <span>h</span>
+                          <input
+                            className="settings__input"
+                            type="number"
+                            min={0}
+                            max={59}
+                            value={Math.floor((countdownDuration % 3600) / 60)}
+                            aria-label="Countdown minutes"
+                            onChange={(event) => {
+                              const minutes = Math.min(59, Math.max(0, Number(event.target.value) || 0));
+                              setCountdownDuration(Math.floor(countdownDuration / 3600) * 3600 + minutes * 60 + (countdownDuration % 60));
+                            }}
+                          />
+                          <span>m</span>
+                          <input
+                            className="settings__input"
+                            type="number"
+                            min={0}
+                            max={59}
+                            value={countdownDuration % 60}
+                            aria-label="Countdown seconds"
+                            onChange={(event) => {
+                              const seconds = Math.min(59, Math.max(0, Number(event.target.value) || 0));
+                              setCountdownDuration(Math.floor(countdownDuration / 60) * 60 + seconds);
+                            }}
+                          />
+                          <span>s</span>
+                        </span>
+                      </label>
+                    ) : (
+                      <label className="countdown__duration">
+                        End at (local time)
+                        <input
+                          className="settings__input countdown__target"
+                          type="datetime-local"
+                          min={localDateTimeInput(Math.ceil(now / 60_000) * 60_000)}
+                          value={countdownTarget}
+                          aria-label="Countdown end date and time"
+                          onChange={(event) => setCountdownTarget(event.target.value)}
+                        />
+                      </label>
+                    )}
+                  </div>
+                  <p className="settings__hint">
+                    {countdownRunning
+                      ? `Running: ${formatCountdown(countdownLeft)} left. Pause keeps that time; Reset goes back to the duration.`
+                      : countdownMode === 'target'
+                        ? targetSeconds === null
+                          ? 'Pick a date and time in the future. Start then counts down to exactly that moment.'
+                          : targetSeconds > 0
+                            ? `Start counts down to ${new Date(targetTimestamp).toLocaleString()} (${formatCountdown(targetSeconds)} from now).`
+                            : 'That time has passed. Pick a future date and time to enable Start.'
+                        : countdownDuration > 0
+                          ? `Start counts down for ${formatCountdown(countdownDuration)} from the moment you press it.`
+                          : 'Set a duration above zero to enable Start.'}
+                  </p>
+                  <div className="countdown__actions">
+                    <button
+                      type="button"
+                      disabled={countdownRunning || !countdownStartReady}
+                      onClick={() => {
+                        const endsAt =
+                          countdownMode === 'target'
+                            ? targetTimestamp
+                            : Date.now() + countdownDuration * 1000;
+                        const remaining = Math.ceil((endsAt - Date.now()) / 1000);
+                        if (!Number.isFinite(endsAt) || remaining <= 0) return;
+                        setCountdownDuration(remaining);
                         void updateClockSettings(clock.id, {
-                          countdownAlertSound: event.target.value,
+                          countdownDurationSeconds: remaining,
+                          countdownRemainingSeconds: remaining,
+                          countdownEndsAt: endsAt,
+                        });
+                        setCountdownTarget('');
+                        setCountdownMode('duration');
+                      }}
+                    >
+                      {countdownStartReady ? `Start ${formatCountdown(countdownStartSeconds)}` : 'Start'}
+                    </button>
+                    {pausedSeconds > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void updateClockSettings(clock.id, {
+                            countdownRemainingSeconds: pausedSeconds,
+                            countdownEndsAt: Date.now() + pausedSeconds * 1000,
+                          })
+                        }
+                      >
+                        Resume {formatCountdown(pausedSeconds)}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      disabled={!countdownRunning}
+                      onClick={() =>
+                        void updateClockSettings(clock.id, {
+                          countdownRemainingSeconds: countdownLeft,
+                          countdownEndsAt: 0,
                         })
                       }
                     >
-                      <option value="">System default</option>
-                      {sounds.map((sound) => (
-                        <option key={sound.id} value={sound.id}>
-                          {sound.label}
-                        </option>
-                      ))}
-                      {/* A saved sound can disappear when the OS library changes. */}
-                      {clock.countdownAlertSound &&
-                      !sounds.some((sound) => sound.id === clock.countdownAlertSound) ? (
-                        <option value={clock.countdownAlertSound}>{clock.countdownAlertSound}</option>
-                      ) : null}
-                    </select>
+                      Pause
+                    </button>
                     <button
                       type="button"
-                      className="countdown__preview"
-                      onClick={() => playAlertSound(clock.countdownAlertSound)}
+                      onClick={() =>
+                        void updateClockSettings(clock.id, {
+                          countdownRemainingSeconds: countdownDuration,
+                          countdownEndsAt: 0,
+                        })
+                      }
                     >
-                      Preview
+                      Reset
                     </button>
                   </div>
+                </section>
+
+                <section className="settings__section">
+                  <h2>Readout</h2>
+                  <div className="segmented" role="group" aria-label="Countdown display format">
+                    <button
+                      type="button"
+                      aria-pressed={clock.countdownDisplay === 'hhmmss'}
+                      onClick={() => void updateClockSettings(clock.id, { countdownDisplay: 'hhmmss' })}
+                    >
+                      HH:MM:SS
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={clock.countdownDisplay === 'seconds'}
+                      onClick={() => void updateClockSettings(clock.id, { countdownDisplay: 'seconds' })}
+                    >
+                      Seconds
+                    </button>
+                  </div>
+                  <p
+                    className="settings__preview"
+                    style={{
+                      fontFamily: fontStack(clock.font),
+                      fontSize: `${Math.round(size * PREVIEW_SCALE)}px`,
+                      background: clock.digitalBackdrop ? undefined : 'transparent',
+                      ...digitalTextStyle(clock.digitalColor, clock.digitalNeon),
+                    }}
+                  >
+                    {clock.countdownDisplay === 'seconds'
+                      ? countdownPreview
+                      : formatCountdown(countdownPreview)}
+                  </p>
                   <label className="countdown__animationSetting">
-                    Repeat the sound every second in the last N seconds (0 = off, max 15)
-                    <input
-                      className="settings__input countdown__tickSeconds"
-                      type="number"
-                      min={0}
-                      max={15}
-                      value={clock.countdownAlertTickSeconds}
-                      aria-label="Seconds before the end to repeat the sound"
-                      onChange={(event) => {
-                        const value = Math.max(0, Math.min(15, Number(event.target.value) || 0));
-                        void updateClockSettings(clock.id, { countdownAlertTickSeconds: value });
-                      }}
-                    />
+                    Number animation
+                    <select
+                      className="settings__input settings__select"
+                      value={clock.countdownAnimation}
+                      aria-label="Countdown number animation"
+                      onChange={(event) =>
+                        void updateClockSettings(clock.id, {
+                          countdownAnimation: event.target.value as CountdownAnimation,
+                        })
+                      }
+                    >
+                      <option value="">None</option>
+                      <option value="animate__jello">animate__jello</option>
+                      <option value="animate__rubberBand">animate__rubberBand</option>
+                    </select>
                   </label>
-                </>
-              ) : null}
-              <div className="countdown__actions">
-                <button
-                  type="button"
-                  disabled={countdownRunning || !countdownStartReady}
-                  onClick={() => {
-                    const endsAt =
-                      countdownMode === 'target'
-                        ? targetTimestamp
-                        : Date.now() + countdownDuration * 1000;
-                    const remaining = Math.ceil((endsAt - Date.now()) / 1000);
-                    if (!Number.isFinite(endsAt) || remaining <= 0) return;
-                    setCountdownDuration(remaining);
-                    void updateClockSettings(clock.id, {
-                      countdownDurationSeconds: remaining,
-                      countdownRemainingSeconds: remaining,
-                      countdownEndsAt: endsAt,
-                    });
-                    setCountdownTarget('');
-                    setCountdownMode('duration');
-                  }}
-                >
-                  {countdownStartReady ? `Start ${formatCountdown(countdownStartSeconds)}` : 'Start'}
-                </button>
-                {pausedSeconds > 0 ? (
+                  {clock.countdownAnimation ? (
+                    <label className="countdown__animationSetting">
+                      Animate in the last N seconds
+                      <input
+                        className="settings__input"
+                        type="number"
+                        min={1}
+                        max={60}
+                        value={clock.countdownAnimationLastSeconds}
+                        aria-label="Seconds remaining to start animation"
+                        onChange={(event) => {
+                          const value = Math.max(1, Math.min(60, Number(event.target.value) || 1));
+                          void updateClockSettings(clock.id, { countdownAnimationLastSeconds: value });
+                        }}
+                      />
+                    </label>
+                  ) : null}
+                </section>
+
+                <section className="settings__section">
+                  <h2>Alert</h2>
+                  <label className="settings__toggle">
+                    <input
+                      type="checkbox"
+                      checked={clock.countdownAlert}
+                      onChange={(event) =>
+                        void updateClockSettings(clock.id, { countdownAlert: event.target.checked })
+                      }
+                    />
+                    Sound alert when it finishes
+                  </label>
+                  {clock.countdownAlert ? (
+                    <>
+                      <div className="countdown__sound">
+                        <select
+                          className="settings__input settings__select"
+                          value={clock.countdownAlertSound}
+                          aria-label="Countdown alert sound"
+                          onChange={(event) =>
+                            void updateClockSettings(clock.id, {
+                              countdownAlertSound: event.target.value,
+                            })
+                          }
+                        >
+                          <option value="">System default</option>
+                          {sounds.map((sound) => (
+                            <option key={sound.id} value={sound.id}>
+                              {sound.label}
+                            </option>
+                          ))}
+                          {/* A saved sound can disappear when the OS library changes. */}
+                          {clock.countdownAlertSound &&
+                          !sounds.some((sound) => sound.id === clock.countdownAlertSound) ? (
+                            <option value={clock.countdownAlertSound}>{clock.countdownAlertSound}</option>
+                          ) : null}
+                        </select>
+                        <button
+                          type="button"
+                          className="countdown__preview"
+                          onClick={() => playAlertSound(clock.countdownAlertSound)}
+                        >
+                          Preview
+                        </button>
+                      </div>
+                      <label className="countdown__animationSetting">
+                        Repeat the sound every second in the last N seconds (0 = off, max 15)
+                        <input
+                          className="settings__input countdown__tickSeconds"
+                          type="number"
+                          min={0}
+                          max={15}
+                          value={clock.countdownAlertTickSeconds}
+                          aria-label="Seconds before the end to repeat the sound"
+                          onChange={(event) => {
+                            const value = Math.max(0, Math.min(15, Number(event.target.value) || 0));
+                            void updateClockSettings(clock.id, { countdownAlertTickSeconds: value });
+                          }}
+                        />
+                      </label>
+                    </>
+                  ) : null}
+                </section>
+              </>
+            ) : (
+              <section className="settings__section">
+                <h2>Countdown is off for this clock</h2>
+                <p className="settings__hint">
+                  This window shows {isAnalog ? 'an analog face' : 'the time of day'} right now.
+                  Switch its display mode to Countdown and the timer controls appear here; the
+                  clock keeps its position, font and colours.
+                </p>
+                <div className="settings__actions">
                   <button
                     type="button"
-                    onClick={() =>
-                      void updateClockSettings(clock.id, {
-                        countdownRemainingSeconds: pausedSeconds,
-                        countdownEndsAt: Date.now() + pausedSeconds * 1000,
-                      })
-                    }
+                    className="settings__primary"
+                    onClick={() => void updateClockSettings(clock.id, { displayMode: 'countdown' })}
                   >
-                    Resume {formatCountdown(pausedSeconds)}
+                    Switch to Countdown
                   </button>
-                ) : null}
-                <button
-                  type="button"
-                  disabled={!countdownRunning}
-                  onClick={() =>
-                    void updateClockSettings(clock.id, {
-                      countdownRemainingSeconds: countdownLeft,
-                      countdownEndsAt: 0,
-                    })
-                  }
-                >
-                  Pause
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    void updateClockSettings(clock.id, {
-                      countdownRemainingSeconds: countdownDuration,
-                      countdownEndsAt: 0,
-                    })
-                  }
-                >
-                  Reset
-                </button>
-              </div>
-            </section>
+                </div>
+              </section>
+            )
           ) : null}
-          {isDigital ? (
+
+          {section === 'timezone' ? (
             <section className="settings__section">
-              <h2>Format</h2>
-                <input
-                  className="settings__input"
-                  value={format}
-                  spellCheck={false}
-                  autoComplete="off"
-                  placeholder={DEFAULT_FORMAT}
-                  aria-invalid={tooLong}
-                  aria-label="Digital time format"
-                  onChange={(event) => setFormat(event.target.value)}
-                />
-            {empty || tooLong ? (
-              <p className="settings__warning">
-                {empty
-                  ? `Empty formats fall back to ${DEFAULT_FORMAT}.`
-                  : 'Formats are limited to 64 characters.'}
-              </p>
-            ) : null}
-
-            <p
-              className="settings__preview"
-              style={{
-                fontFamily: fontStack(clock.font),
-                fontSize: `${Math.round(size * PREVIEW_SCALE)}px`,
-                background: clock.digitalBackdrop ? undefined : 'transparent',
-                ...digitalTextStyle(clock.digitalColor, clock.digitalNeon),
-              }}
-            >
-              {preview}
-            </p>
-
-            <div className="presets">
-              {FORMAT_PRESETS.map((preset) => (
-                <button key={preset} type="button" onClick={() => setFormat(preset)}>
-                  {preset}
-                </button>
-              ))}
-            </div>
-
-            <details className="settings__tokens">
-              <summary>Format tokens</summary>
-              <dl>
-                {FORMAT_TOKENS.map(([token, description]) => (
-                  <div key={token}>
-                    <dt>{token}</dt>
-                    <dd>{description}</dd>
-                  </div>
+              <h2>Time zone</h2>
+              <select
+                className="settings__input settings__select"
+                value={clock.timeZone}
+                aria-label="Clock time zone"
+                onChange={(event) => void updateClockSettings(clock.id, { timeZone: event.target.value })}
+              >
+                {zones.map(([zone, label]) => (
+                  <option key={zone} value={zone}>
+                    {label}
+                  </option>
                 ))}
-              </dl>
+              </select>
               <p className="settings__hint">
-                {
-                  "Wrap literal text in single quotes, e.g. HH:mm 'UTC'. Type \\n to start a new line, e.g. HH:mm\\nEEE."
-                }
+                Each clock reads its own zone, so two windows can show two cities. The list is
+                shared with the tray submenu.
               </p>
-            </details>
+              {isCountdown ? (
+                <p className="settings__hint">
+                  This clock is in Countdown mode, which counts down instead of reading a zone; the
+                  choice applies again the next time it shows Analog or Digital.
+                </p>
+              ) : null}
             </section>
           ) : null}
 
-          <section className="settings__section">
-            <h2>{isCountdown ? 'Countdown font' : 'Font'}</h2>
-            <div className="fonts" role="group" aria-label={isCountdown ? 'Countdown font family' : 'Clock font'}>
-              {FONTS.map((font) => (
-                <button
-                  key={font.id}
-                  type="button"
-                  className="fonts__option"
-                  aria-pressed={clock.font === font.id}
-                  onClick={() => void updateClockSettings(clock.id, { font: font.id })}
-                >
-                  <span className="fonts__sample" style={{ fontFamily: font.stack }}>
-                    {isCountdown ? '00:12:34' : '12:34'}
-                  </span>
-                  <span className="fonts__label">{font.label}</span>
-                </button>
-              ))}
-            </div>
-          </section>
-
-          <section className="settings__section">
-            <h2>{isCountdown ? 'Countdown size' : 'Size'}</h2>
-            <div className="settings__range">
-              <input
-                type="range"
-                min={DIGITAL_SIZE_MIN}
-                max={DIGITAL_SIZE_MAX}
-                step={1}
-                value={size}
-                aria-label={isCountdown ? 'Countdown font size in pixels' : 'Digital font size in pixels'}
-                onChange={(event) => setSize(Number(event.target.value))}
-              />
-              <output className="settings__rangeValue">{size}px</output>
-            </div>
-            <div className="settings__toggles">
-              <label className="settings__toggle">
-                <input
-                  type="checkbox"
-                  checked={clock.digitalFit}
-                  onChange={(event) =>
-                    void updateClockSettings(clock.id, { digitalFit: event.target.checked })
-                  }
-                />
-                {isCountdown ? 'Fit countdown to window' : 'Fit to window'}
-              </label>
-            </div>
-            <p className="settings__hint">
-              {isCountdown ? 'Countdown uses this clock’s selected font family and size, like Digital. ' : ''}
-              44 px is the default and 100 px is the maximum. This clock's window hugs its readout
-              at that exact size. Fit to window only kicks in when you drag the clock smaller than
-              the text: it wraps and shrinks the readout instead of clipping it.
-            </p>
-          </section>
-
-          <section className="settings__section">
-            <h2>Style</h2>
-            <div className="swatches" role="group" aria-label="Digital colour">
-              {DIGITAL_COLORS.map((color) => (
-                <button
-                  key={color.value}
-                  type="button"
-                  className="swatches__option"
-                  style={{ background: color.value }}
-                  aria-pressed={clock.digitalColor === color.value}
-                  aria-label={color.label}
-                  title={color.label}
-                  onClick={() => void updateClockSettings(clock.id, { digitalColor: color.value })}
-                />
-              ))}
-            </div>
-            <div className="settings__toggles">
-              <label className="settings__toggle">
-                <input
-                  type="checkbox"
-                  checked={clock.digitalNeon}
-                  onChange={(event) =>
-                    void updateClockSettings(clock.id, { digitalNeon: event.target.checked })
-                  }
-                />
-                Neon glow
-              </label>
-              <label className="settings__toggle">
-                <input
-                  type="checkbox"
-                  checked={clock.digitalBackdrop}
-                  onChange={(event) =>
-                    void updateClockSettings(clock.id, { digitalBackdrop: event.target.checked })
-                  }
-                />
-                Dark backdrop
-              </label>
-            </div>
-            <p className="settings__hint">
-              {digitalColorLabel(clock.digitalColor)}. Turn the backdrop off to float the time on
-              your desktop; the neon glow makes it readable over most wallpapers.
-            </p>
-          </section>
-        </>
-      ) : null}
-
-      {!isCountdown ? (
-        <section className="settings__section">
-          <h2>Time zone</h2>
-        <select
-          className="settings__input settings__select"
-          value={clock.timeZone}
-          aria-label="Clock time zone"
-          onChange={(event) => void updateClockSettings(clock.id, { timeZone: event.target.value })}
-        >
-          {zones.map(([zone, label]) => (
-            <option key={zone} value={zone}>
-              {label}
-            </option>
-          ))}
-        </select>
-        <p className="settings__hint">
-          Each clock reads its own zone, so two windows can show two cities. The list is shared
-          with the tray submenu.
-        </p>
-        </section>
-      ) : null}
-
-      <TodosSection />
-
-      <footer className="settings__footer">
-        {/* The panel is the only place to quit once the Dock icon (and so `Cmd+Q`) is gone. */}
-        <button
-          type="button"
-          className="settings__quit"
-          onClick={() => void invoke('quit_app')}
-        >
-          Quit Flock
-        </button>
-        <button
-          type="button"
-          className="settings__close"
-          onClick={() => void invoke('close_settings')}
-        >
-          Close
-        </button>
-      </footer>
+          {section === 'todos' ? <TodosSection heading={false} /> : null}
+        </div>
+      </main>
     </div>
   );
 }
